@@ -86,7 +86,7 @@ def check_documentation_drift(code_content, doc_content):
 You are 'DocuGuard'. Check if the CODE logic contradicts the DOCS.
 CRITICAL RULES:
 1. Flag CONTRADICTIONS only.
-2. Output strictly valid JSON.
+2. Output strictly valid JSON object: {{"has_contradiction": true/false, "reason": "...", "suggested_fix": "..."}}
 
 --- DOCS ---
 {doc_content}
@@ -98,7 +98,11 @@ CRITICAL RULES:
         try:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             response = model.generate_content(prompt)
-            return json.loads(response.text), model_name
+            data = json.loads(response.text)
+            # Handle case where model returns a list of objects
+            if isinstance(data, list):
+                data = data[0] if data else {"has_contradiction": False}
+            return data, model_name
         except Exception:
             continue
             
