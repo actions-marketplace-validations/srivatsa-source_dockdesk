@@ -14,8 +14,7 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
 GITHUB_EVENT_PATH = os.getenv("GITHUB_EVENT_PATH")
 
-# We read the 'OPENAI_API_KEY' variable because that is what your action.yml sends,
-# but we treat it as a Google Gemini Key.
+# Read API Key
 api_key = os.getenv("OPENAI_API_KEY") 
 if not api_key:
     print(f"{Fore.RED}Error: API Key not found.{Style.RESET_ALL}")
@@ -43,7 +42,6 @@ def post_pr_comment(reason, suggested_fix):
     try:
         with open(GITHUB_EVENT_PATH, 'r') as f:
             event_data = json.load(f)
-            # Handle both Pull Request and Issue Comment events
             pr_number = event_data.get('pull_request', {}).get('number') or \
                         event_data.get('issue', {}).get('number')
             if not pr_number: return
@@ -69,8 +67,8 @@ def post_pr_comment(reason, suggested_fix):
     print(f"{Fore.GREEN}✅ Comment posted to PR #{pr_number}{Style.RESET_ALL}")
 
 def check_documentation_drift(code_content, doc_content):
-    # Use the Flash model (Fast & Free)
-    model = genai.GenerativeModel('gemini-1.5-flash',
+    # FIX: Use 'gemini-1.5-flash-latest' which is often more reliable
+    model = genai.GenerativeModel('gemini-1.5-flash-latest',
         generation_config={"response_mime_type": "application/json"})
 
     prompt = f"""
@@ -93,22 +91,31 @@ CRITICAL RULES:
         return json.loads(response.text)
     except Exception as e:
         print(f"{Fore.RED}Gemini Error: {e}{Style.RESET_ALL}")
+        # Fallback for debugging: Print available models if this fails again
+        # for m in genai.list_models(): print(m.name)
         sys.exit(1)
 
-code_path = sys.argv[1]
-doc_path = sys.argv[2]
+# ---------------------------------------------------------
+# 3. MAIN EXECUTION
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        sys.exit(1)
 
-code_text = read_file(code_path)
-doc_text = read_file(doc_path)
+    code_path = sys.argv[1]
+    doc_path = sys.argv[2]
 
-result = check_documentation_drift(code_text, doc_text)
+    code_text = read_file(code_path)
+    doc_text = read_file(doc_path)
 
-if result.get("has_contradiction"):
-    print(f"\n{Fore.RED}🚨 DRIFT DETECTED!{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Reason:{Style.RESET_ALL} {result.get('reason')}")
-    
-    post_pr_comment(result.get("reason"), result.get("suggested_fix"))
-    
-    sys.exit(1)
-else:
-    print(f"\n{Fore.GREEN}✅ Accurate.{Style.RESET_ALL}")
+    result = check_documentation_drift(code_text, doc_text)
+
+    if result.get("has_contradiction"):
+        print(f"\n{Fore.RED}🚨 DRIFT DETECTED!{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Reason:{Style.RESET_ALL} {result.get('reason')}")
+        
+        post_pr_comment(result.get("reason"), result.get("suggested_fix"))
+        
+        sys.exit(1)
+    else:
+        print(f"\n{Fore.GREEN}✅ Accurate.{Style.RESET_ALL}")
