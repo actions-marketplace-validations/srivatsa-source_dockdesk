@@ -51,8 +51,11 @@ def post_pr_comment(reason, suggested_fix, model_name):
         pr_number = event_data.get('issue', {}).get('number')
     
     if not pr_number:
-        print(f"{Fore.RED}❌ FAILED: Could not find PR Number in event data.{Style.RESET_ALL}")
-        print(f"Event keys found: {list(event_data.keys())}")
+        if 'commits' in event_data or 'head_commit' in event_data:
+            print(f"{Fore.YELLOW}ℹ️  Running on 'push' event. Skipping PR comment.{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}❌ FAILED: Could not find PR Number in event data.{Style.RESET_ALL}")
+            print(f"Event keys found: {list(event_data.keys())}")
         return
 
     comment_body = f"""
