@@ -1,21 +1,32 @@
 import os
 import sys
 import json
-from openai import OpenAI
+import requests
+import google.generativeai as genai
 from colorama import Fore, Style, init
 
 init(autoreset=True)
 
-# 1. SETUP CLIENT
-# We ask the computer: "Give me the value stored in the variable named OPENAI_API_KEY"
-api_key = os.getenv("OPENAI_API_KEY")
+# ---------------------------------------------------------
+# 1. CONFIGURATION
+# ---------------------------------------------------------
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
+GITHUB_EVENT_PATH = os.getenv("GITHUB_EVENT_PATH")
 
+# We read the 'OPENAI_API_KEY' variable because that is what your action.yml sends,
+# but we treat it as a Google Gemini Key.
+api_key = os.getenv("OPENAI_API_KEY") 
 if not api_key:
-    # This error prints if the computer (or GitHub) doesn't have the secret loaded
-    print(f"{Fore.RED}Error: OPENAI_API_KEY not found in environment variables.{Style.RESET_ALL}")
+    print(f"{Fore.RED}Error: API Key not found.{Style.RESET_ALL}")
     sys.exit(1)
 
-client = OpenAI(api_key=api_key)
+# Configure Gemini
+genai.configure(api_key=api_key)
+
+# ---------------------------------------------------------
+# 2. HELPER FUNCTIONS
+# ---------------------------------------------------------
 def read_file(filepath):
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
@@ -24,44 +35,80 @@ def read_file(filepath):
         print(f"{Fore.RED}Error: File not found -> {filepath}")
         sys.exit(1)
 
+def post_pr_comment(reason, suggested_fix):
+    if not GITHUB_TOKEN or not GITHUB_REPOSITORY or not GITHUB_EVENT_PATH:
+        print(f"{Fore.YELLOW}Skipping comment: Missing GitHub context.{Style.RESET_ALL}")
+        return
+
+    try:
+        with open(GITHUB_EVENT_PATH, 'r') as f:
+            event_data = json.load(f)
+            # Handle both Pull Request and Issue Comment events
+            pr_number = event_data.get('pull_request', {}).get('number') or \
+                        event_data.get('issue', {}).get('number')
+            if not pr_number: return
+    except Exception:
+        return
+
+    comment_body = f"""
+### 🚨 DockDesk: Documentation Drift Detected
+**Reason:** {reason}
+
+**Suggested Fix:**
+```markdown
+{suggested_fix}
+```
+"""
+
+    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/issues/{pr_number}/comments"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    requests.post(url, json={"body": comment_body}, headers=headers)
+    print(f"{Fore.GREEN}✅ Comment posted to PR #{pr_number}{Style.RESET_ALL}")
+
 def check_documentation_drift(code_content, doc_content):
-    print(f"{Fore.CYAN}🔍 Analyzing file logic vs documentation...{Style.RESET_ALL}")
-    
-    system_prompt = """
-    You are 'DocuGuard', a code compliance auditor.
-    Your job is to check if the code logic CONTRADICTS the documentation.
-    
-    CRITICAL INSTRUCTIONS:
-    1. CONTRADICTION ONLY: Only flag if the documentation says X but the code does Y. 
-    2. IGNORE OMISSIONS: If the code does something (like 'return true') and the docs are silent about it, assume it is CORRECT. Do not flag missing details.
-    3. INFER INTENT: If the code says `if (age < 18) error`, and the docs say "18+ required", that is a MATCH. Do not demand explicit text saying "Over 18 is allowed".
-    4. Output JSON: {"has_contradiction": true/false, "reason": "...", "suggested_fix": "..."}
-    """
-    user_prompt = f"--- DOCS ---\n{doc_content}\n\n--- CODE ---\n{code_content}"
+    # Use the Flash model (Fast & Free)
+    model = genai.GenerativeModel('gemini-1.5-flash',
+        generation_config={"response_mime_type": "application/json"})
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-    )
-    return json.loads(response.choices[0].message.content)
+    prompt = f"""
+You are 'DocuGuard'. Check if the CODE logic contradicts the DOCS.
 
-if __name__ == "__main__":
-    # 2. READ ARGUMENTS FROM TERMINAL
-    if len(sys.argv) < 3:
-        print(f"{Fore.YELLOW}Usage: py sauce.py <code_file> <doc_file>{Style.RESET_ALL}")
+CRITICAL RULES:
+1. Flag CONTRADICTIONS only (Code says X, Docs say Y).
+2. Ignore missing details.
+3. Output strictly valid JSON: {{"has_contradiction": true/false, "reason": "...", "suggested_fix": "..."}}
+
+--- DOCS ---
+{doc_content}
+
+--- CODE ---
+{code_content}
+"""
+
+    try:
+        response = model.generate_content(prompt)
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"{Fore.RED}Gemini Error: {e}{Style.RESET_ALL}")
         sys.exit(1)
 
-    code_path = sys.argv[1]
-    doc_path = sys.argv[2]
+code_path = sys.argv[1]
+doc_path = sys.argv[2]
 
-    # 3. RUN THE CHECK
-    code_text = read_file(code_path)
-    doc_text = read_file(doc_path)
+code_text = read_file(code_path)
+doc_text = read_file(doc_path)
+
+result = check_documentation_drift(code_text, doc_text)
+
+if result.get("has_contradiction"):
+    print(f"\n{Fore.RED}🚨 DRIFT DETECTED!{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}Reason:{Style.RESET_ALL} {result.get('reason')}")
     
-    result = check_documentation_drift(code_text, doc_text)
-
-  
+    post_pr_comment(result.get("reason"), result.get("suggested_fix"))
+    
+    sys.exit(1)
+else:
+    print(f"\n{Fore.GREEN}✅ Accurate.{Style.RESET_ALL}")
