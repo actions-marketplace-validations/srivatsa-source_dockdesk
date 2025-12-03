@@ -27,6 +27,27 @@ def read_file(filepath):
         print(f"{Fore.RED}Error: File not found -> {filepath}")
         sys.exit(1)
 
+def get_pr_from_sha():
+    """Finds the PR number associated with the current commit SHA."""
+    github_sha = os.getenv("GITHUB_SHA")
+    if not github_sha or not GITHUB_TOKEN or not GITHUB_REPOSITORY:
+        return None
+    
+    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/commits/{github_sha}/pulls"
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    try:
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            pulls = resp.json()
+            if pulls and isinstance(pulls, list) and len(pulls) > 0:
+                return pulls[0]['number']
+    except Exception as e:
+        print(f"{Fore.RED}Error searching for PR: {e}{Style.RESET_ALL}")
+    return None
+
 def post_pr_comment(reason, suggested_fix, model_name):
     print(f"{Fore.CYAN}Attempting to post comment...{Style.RESET_ALL}")
 
@@ -50,9 +71,14 @@ def post_pr_comment(reason, suggested_fix, model_name):
         # Fallback for issue comments
         pr_number = event_data.get('issue', {}).get('number')
     
+    # Fallback: Search API for PR associated with this commit (for 'push' events)
+    if not pr_number:
+        print(f"{Fore.YELLOW}ℹ️  PR Number not in event. Searching API for open PRs...{Style.RESET_ALL}")
+        pr_number = get_pr_from_sha()
+
     if not pr_number:
         if 'commits' in event_data or 'head_commit' in event_data:
-            print(f"{Fore.YELLOW}ℹ️  Running on 'push' event. Skipping PR comment.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}ℹ️  Running on 'push' event and no associated PR found. Skipping comment.{Style.RESET_ALL}")
         else:
             print(f"{Fore.RED}❌ FAILED: Could not find PR Number in event data.{Style.RESET_ALL}")
             print(f"Event keys found: {list(event_data.keys())}")
