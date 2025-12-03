@@ -1,11 +1,13 @@
-# Use a lightweight Python image
-FROM python:3.9-slim
+# 🚀 UPGRADE: Use Python 3.11 (Fixes importlib crash)
+FROM python:3.11-slim
 
 # Prevent Python from buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
 
-# Install dependencies (ADDED: requests)
+# Install dependencies (Force latest versions)
+RUN pip install --upgrade pip
 RUN pip install google-generativeai colorama requests
+
 # Copy your script
 COPY sauce.py /app/sauce.py
 
