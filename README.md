@@ -64,15 +64,24 @@ It lives in your CI/CD pipeline and audits every Pull Request using **Gemini 2.0
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#2786F7', 'edgeLabelBackground':'#ffffff', 'tertiaryColor': '#f4f4f4'}}}%%
 graph TD
-    A[👨‍💻 Dev Pushes Code] -->|Pull Request| B(🚀 GitHub Action Triggers)
-    B --> C{📁 DockDesk Reads Files}
-    C -->|Code & Docs| D[🤖 Gemini 2.0 AI Analysis]
-    D -->|Contradiction Detected?| E{Drift Found?}
-    E -- YES --> F[❌ Block PR & Post Comment]
-    E -- NO --> G[✅ Pass Checks]
+    A([👨‍💻 Dev Pushes Code]) ==>|Pull Request| B(🚀 GitHub Action Triggers)
+    B ==> C{📁 DockDesk Reads Files}
+    C ==>|Code & Docs| D[🤖 Gemini 2.0 AI Analysis]
+    D ==>|Contradiction Detected?| E{Drift Found?}
+    E == YES ==> F[❌ Block PR & Post Comment]
+    E == NO ==> G[✅ Pass Checks]
 
-    style F fill:#ffcccc,stroke:#ff0000,stroke-width:2px,color:red
-    style G fill:#ccffcc,stroke:#00ff00,stroke-width:2px,color:green
+    %% Styling Nodes
+    style A fill:#2196F3,stroke:#fff,stroke-width:3px,color:#fff
+    style B fill:#9C27B0,stroke:#fff,stroke-width:3px,color:#fff
+    style C fill:#FF9800,stroke:#fff,stroke-width:3px,color:#fff
+    style D fill:#00BCD4,stroke:#fff,stroke-width:3px,color:#fff
+    style E fill:#FFEB3B,stroke:#333,stroke-width:3px,color:#000
+    style F fill:#F44336,stroke:#fff,stroke-width:4px,color:#fff
+    style G fill:#4CAF50,stroke:#fff,stroke-width:4px,color:#fff
+
+    %% Styling Edges
+    linkStyle default stroke:#90CAF9,stroke-width:4px;
 ```
 
 ## 📦 Setup
