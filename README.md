@@ -1,6 +1,6 @@
-<div align="center">
-
 # 🛡️ DockDesk
+
+<div align="center">
 
 <a href="https://git.io/typing-svg">
   <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=2786F7&center=true&vCenter=true&width=500&lines=Stop+drifting.;Stop+lying+to+your+team.;AI-powered+documentation+auditing." alt="Typing SVG" />
@@ -73,13 +73,15 @@ graph TD
 
     style F fill:#ffcccc,stroke:#ff0000,stroke-width:2px,color:red
     style G fill:#ccffcc,stroke:#00ff00,stroke-width:2px,color:green
-```
+📦 Setup
 
-## 📦 Setup
+Create this file:
 
-Create this file: `.github/workflows/dockdesk.yml`
+.github/workflows/dockdesk.yml
 
-```yaml
+
+And paste:
+
 name: DockDesk Audit
 on: [pull_request]
 
@@ -101,10 +103,5 @@ jobs:
           # Files to compare
           code_file: 'src/auth.js'
           doc_file: 'docs/API.md'
-```
 
-<div align="center">
-
-Built with ❤️ + 🤖 by DockDesk
-
-</div>
+<div align="center"> Built with ❤️ + 🤖 by DockDesk </div> ```
