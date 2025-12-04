@@ -7,149 +7,163 @@ from colorama import Fore, Style, init
 
 init(autoreset=True)
 
+# ---------------------------------------------------------
 # CONFIGURATION
+# ---------------------------------------------------------
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY")
 GITHUB_EVENT_PATH = os.getenv("GITHUB_EVENT_PATH")
-api_key = os.getenv("OPENAI_API_KEY") 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") # This holds the Gemini Key
 
-if not api_key:
+if not OPENAI_API_KEY:
     print(f"{Fore.RED}Error: API Key not found.{Style.RESET_ALL}")
     sys.exit(1)
 
-genai.configure(api_key=api_key)
+genai.configure(api_key=OPENAI_API_KEY)
 
-def read_file(filepath):
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
-    except FileNotFoundError:
-        print(f"{Fore.RED}Error: File not found -> {filepath}")
-        sys.exit(1)
-
-def get_pr_from_sha():
-    """Finds the PR number associated with the current commit SHA."""
-    github_sha = os.getenv("GITHUB_SHA")
-    if not github_sha or not GITHUB_TOKEN or not GITHUB_REPOSITORY:
-        return None
-    
-    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/commits/{github_sha}/pulls"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    try:
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            pulls = resp.json()
-            if pulls and isinstance(pulls, list) and len(pulls) > 0:
-                return pulls[0]['number']
-    except Exception as e:
-        print(f"{Fore.RED}Error searching for PR: {e}{Style.RESET_ALL}")
-    return None
-
-def post_pr_comment(reason, suggested_fix, model_name):
-    print(f"{Fore.CYAN}Attempting to post comment...{Style.RESET_ALL}")
-
-    if not GITHUB_TOKEN:
-        print(f"{Fore.RED}❌ FAILED: GITHUB_TOKEN is missing.{Style.RESET_ALL}")
-        return
-
-    # DEBUG: Print the event path
-    print(f"Reading event from: {GITHUB_EVENT_PATH}")
-    
+# ---------------------------------------------------------
+# GITHUB API HELPERS
+# ---------------------------------------------------------
+def get_pr_details():
+    """Extracts PR number from the GitHub Event JSON."""
+    if not GITHUB_EVENT_PATH: return None
     try:
         with open(GITHUB_EVENT_PATH, 'r') as f:
-            event_data = json.load(f)
-    except Exception as e:
-        print(f"{Fore.RED}❌ FAILED: Could not read event file: {e}{Style.RESET_ALL}")
-        return
-        
-    # Try to find PR number
-    pr_number = event_data.get('pull_request', {}).get('number')
-    if not pr_number:
-        # Fallback for issue comments
-        pr_number = event_data.get('issue', {}).get('number')
-    
-    # Fallback: Search API for PR associated with this commit (for 'push' events)
-    if not pr_number:
-        print(f"{Fore.YELLOW}ℹ️  PR Number not in event. Searching API for open PRs...{Style.RESET_ALL}")
-        pr_number = get_pr_from_sha()
+            data = json.load(f)
+            return data.get('pull_request', {}).get('number')
+    except:
+        return None
 
-    if not pr_number:
-        if 'commits' in event_data or 'head_commit' in event_data:
-            print(f"{Fore.YELLOW}ℹ️  Running on 'push' event and no associated PR found. Skipping comment.{Style.RESET_ALL}")
-        else:
-            print(f"{Fore.RED}❌ FAILED: Could not find PR Number in event data.{Style.RESET_ALL}")
-            print(f"Event keys found: {list(event_data.keys())}")
-        return
+def get_pr_diffs(pr_number):
+    """
+    Fetches the actual code changes (diffs) from the Pull Request.
+    This makes the bot 'Smart' - it sees what you changed automatically.
+    """
+    if not GITHUB_TOKEN or not GITHUB_REPOSITORY:
+        print(f"{Fore.RED}Missing GitHub Token or Repo info.{Style.RESET_ALL}")
+        return None
 
-    comment_body = f"""
-### 🚨 DockDesk: Documentation Drift Detected
-**Reason:** {reason}
-
-**Suggested Fix:**
-```markdown
-{suggested_fix}
-```
-(Automated by DockDesk running on {model_name}) """
-
-    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/issues/{pr_number}/comments"
+    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/pulls/{pr_number}/files"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
     }
-    resp = requests.post(url, json={"body": comment_body}, headers=headers)
+    
+    print(f"{Fore.CYAN}📥 Fetching changed files from PR #{pr_number}...{Style.RESET_ALL}")
+    resp = requests.get(url, headers=headers)
+    
+    if resp.status_code != 200:
+        print(f"{Fore.RED}Failed to fetch PR files: {resp.text}{Style.RESET_ALL}")
+        return None
 
-    if resp.status_code == 201:
-        print(f"{Fore.GREEN}✅ Comment posted to PR #{pr_number}{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.RED}❌ GitHub API Error: {resp.status_code} - {resp.text}{Style.RESET_ALL}")
+    files = resp.json()
+    combined_diff = ""
+    
+    # Filter for code files only (ignore images, json, etc if needed)
+    valid_extensions = ('.js', '.ts', '.py', '.java', '.go', '.rb', '.cpp', '.h', '.cs', '.php')
+    
+    count = 0
+    for f in files:
+        filename = f['filename']
+        if filename.endswith(valid_extensions):
+            patch = f.get('patch', '(No text diff available)')
+            combined_diff += f"\n\n--- FILE: {filename} ---\n{patch}"
+            count += 1
+            
+    print(f"{Fore.GREEN}✅ Found {count} code files changed.{Style.RESET_ALL}")
+    return combined_diff
 
-def check_documentation_drift(code_content, doc_content):
-    print(f"{Fore.CYAN}🔍 Analyzing with Gemini...{Style.RESET_ALL}")
+def post_comment(pr_number, body):
+    url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/issues/{pr_number}/comments"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    requests.post(url, json={"body": body}, headers=headers)
+    print(f"{Fore.GREEN}✅ Comment posted.{Style.RESET_ALL}")
 
-    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-pro']
-
+# ---------------------------------------------------------
+# AI ANALYSIS
+# ---------------------------------------------------------
+def analyze_with_gemini(diff_text, doc_text):
+    print(f"{Fore.CYAN}🧠 Analyzing logic with Gemini 2.0...{Style.RESET_ALL}")
+    
+    models = ['gemini-2.0-flash', 'gemini-1.5-flash-latest', 'gemini-pro']
+    
     prompt = f"""
-You are 'DocuGuard'. Check if the CODE logic contradicts the DOCS.
-CRITICAL RULES:
-1. Flag CONTRADICTIONS only.
-2. Output strictly valid JSON object: {{"has_contradiction": true/false, "reason": "...", "suggested_fix": "..."}}
+    You are DockGuard. Compare the PR CODE CHANGES (Diffs) against the DOCUMENTATION.
+    
+    RULES:
+    1. Focus on LOGIC CONTRADICTIONS (e.g., Code adds 'admin_only' check, Docs say 'public').
+    2. IGNORE refactors or variable renames.
+    3. If the code introduces a NEW feature not in docs, suggest adding it.
+    4. Output strictly valid JSON: {{"has_contradiction": true/false, "reason": "...", "suggested_fix": "..."}}
 
---- DOCS ---
-{doc_content}
---- CODE ---
-{code_content}
-"""
+    --- DOCUMENTATION (Source of Truth) ---
+    {doc_text}
 
-    for model_name in models_to_try:
+    --- CODE CHANGES (The Diff) ---
+    {diff_text}
+    """
+
+    for model_name in models:
         try:
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             response = model.generate_content(prompt)
-            data = json.loads(response.text)
-            # Handle case where model returns a list of objects
-            if isinstance(data, list):
-                data = data[0] if data else {"has_contradiction": False}
-            return data, model_name
-        except Exception:
+            return json.loads(response.text), model_name
+        except:
             continue
-            
-    sys.exit(1)
+    
+    return None, None
 
+# ---------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------
 if __name__ == "__main__":
+    # We still take doc_path as an argument because we need a "Source of Truth"
     if len(sys.argv) < 3:
-        sys.exit(1)
+        # If no code file provided, we assume "Smart Mode" (Only doc provided)
+        # Usage: python sauce.py "SMART_MODE" "docs.md"
+        pass
 
-    code_path = sys.argv[1]
+    # Read args (We might ignore code_path in smart mode)
+    code_path_arg = sys.argv[1]
     doc_path = sys.argv[2]
 
-    result, used_model = check_documentation_drift(read_file(code_path), read_file(doc_path))
-
-    if result.get("has_contradiction"):
-        print(f"\n{Fore.RED}🚨 DRIFT DETECTED!{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Reason:{Style.RESET_ALL} {result.get('reason')}")
-        post_pr_comment(result.get("reason"), result.get("suggested_fix"), used_model)
+    # 1. Read Documentation
+    try:
+        with open(doc_path, 'r', encoding='utf-8') as f:
+            doc_text = f.read()
+    except FileNotFoundError:
+        print(f"{Fore.RED}Error: Documentation file '{doc_path}' not found.{Style.RESET_ALL}")
         sys.exit(1)
+
+    # 2. Get Code Context (Smart vs Manual)
+    pr_number = get_pr_details()
+    
+    if pr_number:
+        # SMART MODE: Ignore local file arg, look at the PR
+        code_context = get_pr_diffs(pr_number)
+        if not code_context:
+            print("No code changes found in this PR to analyze.")
+            sys.exit(0)
     else:
-        print(f"\n{Fore.GREEN}✅ Accurate.{Style.RESET_ALL}")
+        # MANUAL MODE: Use the file passed in args (for local testing)
+        print(f"{Fore.YELLOW}No PR detected. Running in local/manual mode on {code_path_arg}{Style.RESET_ALL}")
+        try:
+            with open(code_path_arg, 'r', encoding='utf-8') as f:
+                code_context = f.read()
+        except:
+            sys.exit(1)
+
+    # 3. Analyze
+    result, model = analyze_with_gemini(code_context, doc_text)
+
+    if result and result.get("has_contradiction"):
+        print(f"\n{Fore.RED}🚨 DRIFT DETECTED!{Style.RESET_ALL}")
+        print(f"Reason: {result.get('reason')}")
+        
+        # Post comment if in a PR
+        if pr_number:
+            body = f"### 🚨 DockDesk detected a conflict\n**Reason:** {result['reason']}\n\n**Suggestion:**\n```markdown\n{result['suggested_fix']}\n```\n*(Analyzed {len(code_context)} chars of code changes)*"
+            post_comment(pr_number, body)
+            sys.exit(1) # Fail build
+    else:
+        print(f"\n{Fore.GREEN}✅ No contradictions found.{Style.RESET_ALL}")
