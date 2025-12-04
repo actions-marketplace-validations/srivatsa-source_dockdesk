@@ -106,4 +106,4 @@ jobs:
           code_file: 'src/auth.js'
           doc_file: 'docs/API.md'
 
-<div align="center"> Built with ❤️ + 🤖 by DockDesk </div> ```
+<div align="center"> Built by Vatsa </div> ```
