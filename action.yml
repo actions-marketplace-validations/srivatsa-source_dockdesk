@@ -1,5 +1,9 @@
 name: 'DockDesk'
-description: 'Automated documentation auditor.'
+description: 'AI Auditor that ensures Code matches Documentation.'
+author: 'Srivatsa'
+branding:
+  icon: 'shield'  # Options: shield, lock, check, search, eye
+  color: 'blue'   # Options: blue, green, yellow, red, purple
 inputs:
   openai_api_key:
     description: 'API Key (Gemini or OpenAI)'
@@ -8,8 +12,9 @@ inputs:
     description: 'GitHub Token for commenting'
     required: true
   code_file:
-    description: 'Path to code file'
-    required: true
+    description: 'Path to code file (Leave as "AUTO" to scan PR changes)'
+    required: false
+    default: 'AUTO'
   doc_file:
     description: 'Path to doc file'
     required: true
