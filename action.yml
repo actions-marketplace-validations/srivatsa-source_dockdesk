@@ -22,6 +22,12 @@ inputs:
     description: 'Fail the workflow if drift is detected (true/false)'
     required: false
     default: 'true'
+  github_repository:
+    description: 'GitHub Repository (owner/repo)'
+    required: true
+  pr_number:
+    description: 'Pull Request Number'
+    required: true
 outputs:
   drift_detected:
     description: 'True if contradiction found'
@@ -42,5 +48,5 @@ runs:
     # The Python script reads os.getenv("GEMINI_API_KEY"), so this must match!
     GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
     GITHUB_TOKEN: ${{ inputs.github_token }}
-    GITHUB_REPOSITORY: ${{ github.repository }}
-    PR_NUMBER: ${{ github.event.pull_request.number }}
+    GITHUB_REPOSITORY: ${{ inputs.github_repository }}
+    PR_NUMBER: ${{ inputs.pr_number }}

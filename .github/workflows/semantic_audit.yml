@@ -46,6 +46,8 @@ jobs:
           code_file: ${{ steps.changed-files.outputs.all_changed_files }}
           doc_file: 'demo_doc.md'
           fail_on_drift: 'true'
+          github_repository: ${{ github.repository }}
+          pr_number: ${{ github.event.pull_request.number }}
 
       - name: Gatekeeper Action (Post Audit Report)
         if: always() && steps.changed-files.outputs.any_changed == 'true'
