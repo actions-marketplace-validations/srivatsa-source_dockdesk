@@ -31,7 +31,9 @@ runs:
   using: 'docker'
   image: 'Dockerfile'
   args:
+    - --code
     - ${{ inputs.code_file }}
+    - --doc
     - ${{ inputs.doc_file }}
     - --fail-on-drift
     - ${{ inputs.fail_on_drift }}
@@ -40,3 +42,5 @@ runs:
     # The Python script reads os.getenv("GEMINI_API_KEY"), so this must match!
     GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
     GITHUB_TOKEN: ${{ inputs.github_token }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    PR_NUMBER: ${{ github.event.pull_request.number }}

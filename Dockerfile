@@ -6,7 +6,8 @@ ENV PYTHONUNBUFFERED=1
 
 # Install dependencies (Force latest versions)
 RUN pip install --upgrade pip
-RUN pip install google-genai colorama requests
+COPY requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
 
 # Copy your script
 COPY integrity_agent.py /app/integrity_agent.py
