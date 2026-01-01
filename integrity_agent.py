@@ -168,10 +168,14 @@ def main():
                 report=f"**Risk:** {risk_level}\n\n{result.get('details')}",
                 self_healed_doc=result.get('fixed_content')
             )
+        else:
+            console.print("[yellow]Skipping GitHub comment: PR_NUMBER not found or invalid.[/yellow]")
 
         # Exit Code
         if args.fail_on_drift.lower() == 'true':
             sys.exit(1)
+    else:
+        console.print("[green]No drift detected. Documentation is up to date.[/green]")
 
 if __name__ == "__main__":
     main()
