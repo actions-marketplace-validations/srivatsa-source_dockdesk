@@ -58,7 +58,8 @@ class DockGuard:
                 if response_schema:
                     return json.loads(response.text)
                 return response.text
-            except Exception:
+            except Exception as e:
+                console.print(f"[yellow]Warning: Model {model} failed: {e}[/yellow]")
                 continue
         raise RuntimeError("All Gemini models failed.")
 
