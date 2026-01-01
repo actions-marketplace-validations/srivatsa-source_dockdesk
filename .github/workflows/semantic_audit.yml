@@ -3,6 +3,7 @@ name: Semantic Audit
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  workflow_dispatch:
 
 jobs:
   audit:
@@ -49,6 +50,3 @@ jobs:
       - name: Gatekeeper Action (Post Audit Report)
         if: always() && steps.changed-files.outputs.any_changed == 'true'
         run: echo "Audit Complete. Reports are posted directly to the PR by the agent."
-        with:
-          header: semantic-audit
-          path: audit_report.md
