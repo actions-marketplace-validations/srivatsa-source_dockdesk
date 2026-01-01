@@ -16,8 +16,9 @@ inputs:
     required: false
     default: 'AUTO'
   doc_file:
-    description: 'Path to doc file'
-    required: true
+    description: 'Path to doc file (AUTO to auto-detect README.md, docs/*.md, etc.)'
+    required: false
+    default: 'AUTO'
   fail_on_drift:
     description: 'Fail the workflow if drift is detected (true/false)'
     required: false

@@ -217,7 +217,7 @@ class DockGuard:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--code', nargs='+', required=True, help="Path to code file(s)")
-    parser.add_argument('--doc', required=True, help="Path to documentation file")
+    parser.add_argument('--doc', required=False, default='AUTO', help="Path to doc file (AUTO to auto-detect)")
     parser.add_argument('--fail-on-drift', type=str, default="true")
     args = parser.parse_args()
 
@@ -234,6 +234,46 @@ def main():
         console.print("[bold red]Error: No API key found. Set GEMINI_API_KEY or GROQ_API_KEY.[/bold red]")
         sys.exit(1)
 
+    # Auto-detect documentation files
+    def find_doc_files() -> list:
+        """Auto-detect documentation files in the workspace."""
+        doc_patterns = [
+            'README.md', 'readme.md', 'README.MD',
+            'DOCS.md', 'docs.md',
+            'DOCUMENTATION.md', 'documentation.md',
+            'docs/README.md', 'docs/*.md',
+            'doc/README.md', 'doc/*.md',
+            '*.md'  # Fallback: any markdown in root
+        ]
+        import glob
+        found_docs = []
+        
+        # Priority order: README first, then docs folder, then others
+        priority_files = ['README.md', 'readme.md', 'docs/README.md', 'doc/README.md']
+        for pf in priority_files:
+            if os.path.exists(pf):
+                found_docs.append(pf)
+        
+        # Then search for other markdown files
+        for pattern in ['docs/*.md', 'doc/*.md', '*.md']:
+            for f in glob.glob(pattern):
+                if f not in found_docs and not f.startswith('.'):
+                    found_docs.append(f)
+        
+        return found_docs
+
+    # Determine doc file(s) to use
+    doc_file = args.doc
+    if doc_file == 'AUTO':
+        detected_docs = find_doc_files()
+        if not detected_docs:
+            console.print("[bold red]Error: No documentation files found. Create a README.md or specify --doc.[/bold red]")
+            sys.exit(1)
+        doc_file = detected_docs[0]  # Use the highest priority doc
+        console.print(f"[cyan]Auto-detected documentation: {doc_file}[/cyan]")
+        if len(detected_docs) > 1:
+            console.print(f"[dim]Other docs found: {', '.join(detected_docs[1:])}[/dim]")
+
     # Read Files
     code_content = ""
     try:
@@ -246,7 +286,7 @@ def main():
             with open(path, 'r', encoding='utf-8') as f:
                 code_content += f"\n--- FILE: {path} ---\n{f.read()}\n"
         
-        with open(args.doc, 'r', encoding='utf-8') as f:
+        with open(doc_file, 'r', encoding='utf-8') as f:
             doc_content = f.read()
     except FileNotFoundError as e:
         console.print(f"[bold red]File not found: {e}[/bold red]")
@@ -287,9 +327,9 @@ def main():
             if not pr_number and sys.stdin.isatty():
                 if Confirm.ask("[bold yellow]Apply this fix automatically?[/bold yellow]"):
                     try:
-                        with open(args.doc, 'w', encoding='utf-8') as f:
+                        with open(doc_file, 'w', encoding='utf-8') as f:
                             f.write(result.get('fixed_content'))
-                        console.print(f"[bold green]✓ Fixed! Updated {args.doc}[/bold green]")
+                        console.print(f"[bold green]✓ Fixed! Updated {doc_file}[/bold green]")
                         sys.exit(0)  # Success after fix
                     except Exception as e:
                         console.print(f"[bold red]✗ Failed to write fix: {e}[/bold red]")
@@ -301,7 +341,7 @@ def main():
             reporter.post_comment(
                 report=f"**Risk:** {risk_level}\n\n{result.get('details')}",
                 self_healed_doc=result.get('fixed_content'),
-                doc_file=args.doc
+                doc_file=doc_file
             )
         else:
             console.print("[yellow]Skipping GitHub comment: PR_NUMBER not found or invalid.[/yellow]")
