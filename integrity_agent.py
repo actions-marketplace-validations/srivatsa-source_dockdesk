@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import argparse
+import requests
 from typing import Optional, Dict, Any
 from google import genai
 from google.genai import types
@@ -10,27 +11,114 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.status import Status
+from rich.syntax import Syntax
+from rich.prompt import Confirm
 from github import Github
 
 # Initialize Rich Console
 console = Console()
 
+class AlertSystem:
+    """Human-in-the-loop alert system via Slack/Discord webhooks."""
+    
+    def __init__(self, slack_url: str = None, discord_url: str = None):
+        self.slack_url = slack_url
+        self.discord_url = discord_url
+    
+    def send_alert(self, risk: str, summary: str, details: str, pr_url: str = None):
+        emoji = "🔴" if risk == "HIGH" else "🟠" if risk == "MEDIUM" else "🟢"
+        
+        # Slack Alert
+        if self.slack_url:
+            slack_payload = {
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {"type": "plain_text", "text": f"{emoji} DockDesk Alert: Documentation Drift Detected"}
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {"type": "mrkdwn", "text": f"*Risk Level:*\n{risk}"},
+                            {"type": "mrkdwn", "text": f"*Summary:*\n{summary}"}
+                        ]
+                    },
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*Details:*\n{details[:500]}..."}
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "🔍 Review PR"},
+                                "url": pr_url,
+                                "style": "danger"
+                            } if pr_url else {}
+                        ]
+                    }
+                ]
+            }
+            try:
+                requests.post(self.slack_url, json=slack_payload, timeout=10)
+                console.print("[green]✓ Slack alert sent[/green]")
+            except Exception as e:
+                console.print(f"[yellow]Slack alert failed: {e}[/yellow]")
+        
+        # Discord Alert
+        if self.discord_url:
+            discord_payload = {
+                "embeds": [{
+                    "title": f"{emoji} DockDesk Alert: Documentation Drift",
+                    "color": 0xFF0000 if risk == "HIGH" else 0xFFA500 if risk == "MEDIUM" else 0x00FF00,
+                    "fields": [
+                        {"name": "Risk Level", "value": risk, "inline": True},
+                        {"name": "Summary", "value": summary, "inline": False},
+                        {"name": "Details", "value": details[:1000], "inline": False}
+                    ],
+                    "footer": {"text": "DockDesk Integrity Agent"}
+                }]
+            }
+            if pr_url:
+                discord_payload["embeds"][0]["url"] = pr_url
+            try:
+                requests.post(self.discord_url, json=discord_payload, timeout=10)
+                console.print("[green]✓ Discord alert sent[/green]")
+            except Exception as e:
+                console.print(f"[yellow]Discord alert failed: {e}[/yellow]")
+
 class GitHubReporter:
     def __init__(self, token: str, repo_name: str, pr_number: int):
         self.enabled = bool(token and repo_name and pr_number)
+        self.repo_name = repo_name
+        self.pr_number = pr_number
         if self.enabled:
             self.g = Github(token)
             self.repo = self.g.get_repo(repo_name)
             self.pr = self.repo.get_pull(pr_number)
 
-    def post_comment(self, report: str, self_healed_doc: Optional[str] = None):
+    def get_pr_url(self) -> str:
+        return f"https://github.com/{self.repo_name}/pull/{self.pr_number}" if self.enabled else None
+
+    def post_comment(self, report: str, self_healed_doc: Optional[str] = None, doc_file: str = None):
         if not self.enabled:
             return
 
         body = f"## 🛡️ DockDesk Integrity Report\n\n{report}"
         
         if self_healed_doc:
-            body += f"\n\n<details><summary>📝 <b>Proposed Documentation Fix</b> (Click to expand)</summary>\n\n```markdown\n{self_healed_doc}\n```\n</details>"
+            # Add prominent one-click fix section
+            body += f"\n\n---\n\n## ✨ One-Click Fix Available\n\n"
+            body += f"**Action Required:** A human reviewer must approve this fix.\n\n"
+            body += f"### Option 1: Apply via GitHub UI\n"
+            body += f"Copy the fixed documentation below and update `{doc_file or 'your doc file'}`:\n\n"
+            body += f"<details open><summary>📝 <b>Click to view the corrected documentation</b></summary>\n\n```markdown\n{self_healed_doc}\n```\n</details>\n\n"
+            body += f"### Option 2: Apply via Terminal\n"
+            body += f"```bash\n# Run this command to auto-apply the fix:\ngit checkout {self.pr.head.ref}\n# Then copy the content above to your doc file\n```\n\n"
+            body += f"---\n\n"
+            body += f"⚠️ **Human Review Required:** Please verify the suggested fix before merging.\n"
+            body += f"React with 👍 to approve or 👎 to reject this suggestion."
         
         try:
             self.pr.create_issue_comment(body)
@@ -139,6 +227,8 @@ def main():
     github_token = os.getenv("GITHUB_TOKEN")
     repo_name = os.getenv("GITHUB_REPOSITORY")
     pr_number = os.getenv("PR_NUMBER")
+    slack_webhook = os.getenv("SLACK_WEBHOOK")
+    discord_webhook = os.getenv("DISCORD_WEBHOOK")
 
     if not gemini_key and not groq_key:
         console.print("[bold red]Error: No API key found. Set GEMINI_API_KEY or GROQ_API_KEY.[/bold red]")
@@ -186,15 +276,46 @@ def main():
     if has_drift:
         console.print(Markdown(f"### Details\n{result.get('details')}"))
         
+        # Show the fix in terminal with syntax highlighting
+        if result.get('fixed_content'):
+            console.print("\n[bold cyan]═══════════════════════════════════════════════════════════════[/bold cyan]")
+            console.print("[bold green]✨ PROPOSED FIX (Copy this to your doc file):[/bold green]\n")
+            console.print(Syntax(result.get('fixed_content'), "markdown", theme="monokai", line_numbers=True))
+            console.print("[bold cyan]═══════════════════════════════════════════════════════════════[/bold cyan]\n")
+            
+            # Interactive terminal fix (only in local mode)
+            if not pr_number and sys.stdin.isatty():
+                if Confirm.ask("[bold yellow]Apply this fix automatically?[/bold yellow]"):
+                    try:
+                        with open(args.doc, 'w', encoding='utf-8') as f:
+                            f.write(result.get('fixed_content'))
+                        console.print(f"[bold green]✓ Fixed! Updated {args.doc}[/bold green]")
+                        sys.exit(0)  # Success after fix
+                    except Exception as e:
+                        console.print(f"[bold red]✗ Failed to write fix: {e}[/bold red]")
+        
         # GitHub Reporting
+        reporter = None
         if pr_number and pr_number.isdigit():
             reporter = GitHubReporter(github_token, repo_name, int(pr_number))
             reporter.post_comment(
                 report=f"**Risk:** {risk_level}\n\n{result.get('details')}",
-                self_healed_doc=result.get('fixed_content')
+                self_healed_doc=result.get('fixed_content'),
+                doc_file=args.doc
             )
         else:
             console.print("[yellow]Skipping GitHub comment: PR_NUMBER not found or invalid.[/yellow]")
+        
+        # Human-in-the-loop Alerts (Slack/Discord)
+        if slack_webhook or discord_webhook:
+            alerts = AlertSystem(slack_url=slack_webhook, discord_url=discord_webhook)
+            pr_url = reporter.get_pr_url() if reporter else None
+            alerts.send_alert(
+                risk=risk_level,
+                summary=result.get('summary', 'Documentation drift detected'),
+                details=result.get('details', ''),
+                pr_url=pr_url
+            )
 
         # Exit Code
         if args.fail_on_drift.lower() == 'true':

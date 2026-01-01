@@ -2,3 +2,4 @@ google-genai
 PyGithub
 rich
 groq
+requests

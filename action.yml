@@ -25,6 +25,12 @@ inputs:
   groq_api_key:
     description: 'Groq API Key (Free fallback if Gemini quota exceeded)'
     required: false
+  slack_webhook:
+    description: 'Slack Webhook URL for human-in-the-loop alerts'
+    required: false
+  discord_webhook:
+    description: 'Discord Webhook URL for alerts'
+    required: false
   github_repository:
     description: 'GitHub Repository (owner/repo)'
     required: true
@@ -51,6 +57,8 @@ runs:
     # The Python script reads os.getenv("GEMINI_API_KEY"), so this must match!
     GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
     GROQ_API_KEY: ${{ inputs.groq_api_key }}
+    SLACK_WEBHOOK: ${{ inputs.slack_webhook }}
+    DISCORD_WEBHOOK: ${{ inputs.discord_webhook }}
     GITHUB_TOKEN: ${{ inputs.github_token }}
     GITHUB_REPOSITORY: ${{ inputs.github_repository }}
     PR_NUMBER: ${{ inputs.pr_number }}
