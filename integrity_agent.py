@@ -5,6 +5,7 @@ import argparse
 from typing import Optional, Dict, Any
 from google import genai
 from google.genai import types
+from groq import Groq
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -38,30 +39,52 @@ class GitHubReporter:
             console.print(f"[bold red]✗ Failed to post to GitHub: {e}[/bold red]")
 
 class DockGuard:
-    def __init__(self, api_key: str):
-        self.client = genai.Client(api_key=api_key)
-        # Fallback list of models
-        self.models = ['gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-flash']
+    def __init__(self, gemini_key: str = None, groq_key: str = None):
+        self.gemini_client = genai.Client(api_key=gemini_key) if gemini_key else None
+        self.groq_client = Groq(api_key=groq_key) if groq_key else None
+        self.gemini_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        self.groq_models = ['llama-3.3-70b-versatile', 'llama3-70b-8192', 'mixtral-8x7b-32768']
 
     def _generate(self, prompt: str, response_schema: Any = None) -> Any:
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json" if response_schema else "text/plain"
-        )
-        
-        for model in self.models:
-            try:
-                response = self.client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=config
-                )
-                if response_schema:
-                    return json.loads(response.text)
-                return response.text
-            except Exception as e:
-                console.print(f"[yellow]Warning: Model {model} failed: {e}[/yellow]")
-                continue
-        raise RuntimeError("All Gemini models failed.")
+        # Try Gemini first
+        if self.gemini_client:
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json" if response_schema else "text/plain"
+            )
+            for model in self.gemini_models:
+                try:
+                    response = self.gemini_client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=config
+                    )
+                    if response_schema:
+                        return json.loads(response.text)
+                    return response.text
+                except Exception as e:
+                    console.print(f"[yellow]Gemini {model} failed: {e}[/yellow]")
+                    continue
+
+        # Fallback to Groq (Free Tier)
+        if self.groq_client:
+            console.print("[blue]Falling back to Groq (Llama)...[/blue]")
+            json_instruction = "\n\nIMPORTANT: Return ONLY valid JSON, no markdown." if response_schema else ""
+            for model in self.groq_models:
+                try:
+                    response = self.groq_client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt + json_instruction}],
+                        response_format={"type": "json_object"} if response_schema else None
+                    )
+                    result = response.choices[0].message.content
+                    if response_schema:
+                        return json.loads(result)
+                    return result
+                except Exception as e:
+                    console.print(f"[yellow]Groq {model} failed: {e}[/yellow]")
+                    continue
+
+        raise RuntimeError("All AI providers failed. Check your API keys and quotas.")
 
     def analyze(self, code_content: str, doc_content: str) -> Dict[str, Any]:
         # Step 1: Intent Extraction (Chain of Thought)
@@ -111,13 +134,14 @@ def main():
     args = parser.parse_args()
 
     # Load Environment
-    api_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    groq_key = os.getenv("GROQ_API_KEY")
     github_token = os.getenv("GITHUB_TOKEN")
     repo_name = os.getenv("GITHUB_REPOSITORY")
     pr_number = os.getenv("PR_NUMBER")
 
-    if not api_key:
-        console.print("[bold red]Error: GEMINI_API_KEY is missing.[/bold red]")
+    if not gemini_key and not groq_key:
+        console.print("[bold red]Error: No API key found. Set GEMINI_API_KEY or GROQ_API_KEY.[/bold red]")
         sys.exit(1)
 
     # Read Files
@@ -139,7 +163,7 @@ def main():
         sys.exit(1)
 
     # Run Analysis
-    guard = DockGuard(api_key)
+    guard = DockGuard(gemini_key=gemini_key, groq_key=groq_key)
     try:
         result = guard.analyze(code_content, doc_content)
     except Exception as e:

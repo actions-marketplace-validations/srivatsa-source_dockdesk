@@ -42,6 +42,7 @@ jobs:
         uses: ./ # Uses the action.yml in the root
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          groq_api_key: ${{ secrets.GROQ_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           code_file: ${{ steps.changed-files.outputs.all_changed_files }}
           doc_file: 'demo_doc.md'
