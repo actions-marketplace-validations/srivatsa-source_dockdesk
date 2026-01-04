@@ -34,20 +34,21 @@ jobs:
       - name: Install Dependencies
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          pip install google-genai colorama
+          pip install -r requirements.txt
 
       - name: Reasoning Layer (Run Integrity Agent)
         if: steps.changed-files.outputs.any_changed == 'true'
-        id: agent
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          python integrity_agent.py --files ${{ steps.changed-files.outputs.all_changed_files }} --doc README.md > audit_report.md
-          cat audit_report.md
+        uses: ./ # Uses the action.yml in the root
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          code_file: ${{ steps.changed-files.outputs.all_changed_files }}
+          doc_file: 'README.md'
+          fail_on_drift: 'true'
 
       - name: Gatekeeper Action (Post Audit Report)
         if: always() && steps.changed-files.outputs.any_changed == 'true'
-        uses: marocchino/sticky-pull-request-comment@v2
+        run: echo "Audit Complete. Reports are posted directly to the PR by the agent."
         with:
           header: semantic-audit
           path: audit_report.md
