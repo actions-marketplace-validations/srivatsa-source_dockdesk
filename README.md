@@ -1,164 +1,247 @@
-# 🛡️ DockDesk
+# DockDesk
 
-<div align="center">
+Universal AI-powered documentation drift detector. Automatically discovers documentation, works with any codebase, and provides one-click GitHub fixes.
 
-<a href="https://git.io/typing-svg">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=2786F7&center=true&vCenter=true&width=500&lines=Stop+drifting.;Stop+lying+to+your+team.;AI-powered+documentation+auditing." alt="Typing SVG" />
-</a>
+## Overview
 
-> **The AI Auditor that ensures your Code never contradicts your Documentation.**
+DockDesk is an AI agent that runs on every Pull Request to detect when code changes don't match documentation. It:
 
-<p align="center">
-  <a href="#-see-it-in-action">View Demo</a> •
-  <a href="#-setup">Installation</a> •
-  <a href="#-how-it-works">How It Works</a>
-</p>
+1. Auto-discovers all documentation (markdown, docstrings, JSDoc, Javadoc, etc.)
+2. Analyzes code intent using Gemini 2.0 or Llama
+3. Posts inline GitHub suggestions you can commit with one click
 
-<p align="center">
-<img src="https://img.shields.io/badge/AI%20Model-Gemini%202.0%20Flash-8E74F1?style=for-the-badge&logo=google&logoColor=white" alt="AI Model">
-<img src="https://img.shields.io/github/actions/workflow/status/srivatsa-source/dockdesk/main.yml?style=for-the-badge&label=BUILD" alt="Build Status">
-<img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License">
-</p>
+Works with any language, any codebase, with minimal configuration.
 
-</div>
+## Quick Start
 
----
+### Step 1: Add the Workflow
 
-## 🎥 See it in Action
+Create `.github/workflows/dockdesk.yml`:
 
-Docs say one thing. Code does another. **DockDesk catches it before you merge.**
-
-<div align="center">
-  <img src="demo.gif" alt="DockDesk Demo Animation" width="800" style="border-radius: 10px; box-shadow: 0px 0px 20px rgba(0,0,0,0.2);">
-</div>
-
----
-
-## 💀 The Problem: "Knowledge Drift"
-
-Developers write code faster than they write documentation.
-
-1. ❌ Code gets updated  
-2. ❌ Docs remain outdated  
-3. 🔥 **Result:** API consumers suffer, onboarding slows, confusion spreads
-
----
-
-## ⚡ The Solution: Active Compliance
-
-DockDesk is not a keyword-based static analyzer.  
-It's an AI auditor that understands **context and intent**.
-
-It lives in your CI/CD pipeline and audits every Pull Request using **Gemini 2.0**.
-
-| Feature | Description |
-|--------|-------------|
-| 👀 **Reads** | Scans updated code and documentation. |
-| 🧠 **Thinks** | Detects contradictions like “public” vs “admin-only”. |
-| 🗣️ **Speaks** | Blocks the PR & comments what must be fixed. |
-
----
-
-## 🧠 How It Works: The "Knowledge Integrity" Architecture
-
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#2786F7', 'edgeLabelBackground':'#ffffff', 'tertiaryColor': '#f4f4f4'}}}%%
-graph TD
-    subgraph PERCEPTION ["👁️ PERCEPTION LAYER"]
-        A([💻 Dev Pushes Code]) -->|Pull Request| B(GitHub Action)
-        B -->|Identify Changed Files| C{tj-actions/changed-files}
-    end
-
-    subgraph REASONING ["🧠 REASONING LAYER"]
-        C -->|Code + Docs| D[Integrity Agent]
-        D -->|Context & Intent| E[Gemini 2.0 Flash]
-        E -->|Semantic Analysis| F{Contradiction?}
-    end
-
-    subgraph ACTION ["🛡️ ACTION LAYER"]
-        F -- YES --> G[❌ Block PR]
-        G --> H[📝 Post Audit Report]
-        G --> I[🔌 Slack Alert (Enterprise)]
-        F -- NO --> J[✅ Pass Checks]
-    end
-
-    style A fill:#2196F3,stroke:#fff,stroke-width:2px,color:#fff
-    style E fill:#8E74F1,stroke:#fff,stroke-width:2px,color:#fff
-    style G fill:#F44336,stroke:#fff,stroke-width:2px,color:#fff
-    style J fill:#4CAF50,stroke:#fff,stroke-width:2px,color:#fff
-```
-
-## 📦 Setup
-
-Create this file:
-
-.github/workflows/dockdesk.yml
-
-
-And paste:
-
+```yaml
 name: DockDesk Audit
-on: [pull_request]
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write # Required for commenting
-    steps:
-      - uses: actions/checkout@v3
+      pull-requests: write
 
-      - name: Run AI Auditor
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Changed Files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          files: |
+            **/*.py
+            **/*.js
+            **/*.ts
+            **/*.java
+            **/*.go
+            **/*.rs
+            **/*.rb
+            **/*.cpp
+            **/*.cs
+            **/*.swift
+            **/*.kt
+
+      - name: Run DockDesk
+        if: steps.changed-files.outputs.any_changed == 'true'
         uses: srivatsa-source/dockdesk@main
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_repository: ${{ github.repository }}
+          pr_number: ${{ github.event.pull_request.number }}
+          code_files: ${{ steps.changed-files.outputs.all_changed_files }}
+```
 
-          # Files to compare
-          code_file: 'src/auth.js'
-          doc_file: 'docs/API.md'
+### Step 2: Add Secrets
 
-## 🛠️ Interactive Mode & Agentic Workflow
+In your repository, go to Settings > Secrets and variables > Actions:
 
-DockDesk is designed to be the **Verification Layer** for both human developers and AI Agents. It prevents "Knowledge Decay" by ensuring documentation is always the Source of Truth.
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `GEMINI_API_KEY` | Yes | Get free at [aistudio.google.com](https://aistudio.google.com) |
+| `GITHUB_TOKEN` | Yes | Automatically provided by GitHub Actions |
+| `GROQ_API_KEY` | No | Free fallback: [console.groq.com](https://console.groq.com) |
+| `SLACK_WEBHOOK` | No | For Slack alerts |
+| `DISCORD_WEBHOOK` | No | For Discord alerts |
 
-### 🧑‍💻 For Developers (Interactive Fix)
+### Step 3: Open a Pull Request
 
-Run DockDesk locally to verify your changes before pushing. If a contradiction is found, DockDesk can **automatically fix your documentation**.
+DockDesk will automatically:
+- Find all relevant documentation
+- Analyze your code for intent
+- Post inline suggestions if docs need updating
+
+## Configuration
+
+All inputs are optional except API keys:
+
+```yaml
+- uses: srivatsa-source/dockdesk@main
+  with:
+    # Required
+    gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+    github_token: ${{ secrets.GITHUB_TOKEN }}
+    github_repository: ${{ github.repository }}
+    pr_number: ${{ github.event.pull_request.number }}
+    
+    # Code files to analyze (from changed-files action)
+    code_files: ${{ steps.changed-files.outputs.all_changed_files }}
+    
+    # Documentation discovery
+    doc_file: 'AUTO'           # AUTO = discover all docs (default)
+                               # Or specify: 'docs/API.md'
+    
+    # Behavior
+    fail_on_drift: 'true'      # Block PR if drift detected
+    
+    # Fallback AI (free tier)
+    groq_api_key: ${{ secrets.GROQ_API_KEY }}
+    
+    # Alerts
+    slack_webhook: ${{ secrets.SLACK_WEBHOOK }}
+    discord_webhook: ${{ secrets.DISCORD_WEBHOOK }}
+```
+
+## Documentation Discovery
+
+DockDesk automatically finds and analyzes:
+
+| Source | Examples |
+|--------|----------|
+| Markdown | `README.md`, `docs/*.md`, `wiki/**/*.md`, `.github/*.md` |
+| Python Docstrings | Module, class, and function docstrings |
+| JSDoc/TSDoc | `/** ... */` comments in JS/TS files |
+| Javadoc | `/** ... */` comments in Java files |
+| Go Doc | `// Comment` blocks before declarations |
+| RST/AsciiDoc | `*.rst`, `*.adoc` files |
+
+The agent intelligently matches docs to changed files based on:
+- File and folder name similarity
+- Keyword matching in content
+- Documentation type priority (README > API docs > nested docs)
+
+## Local Usage
+
+Run DockDesk locally for instant feedback:
 
 ```bash
-python sauce.py src/my_feature.py docs/feature_specs.md
+# Install dependencies
+pip install -r requirements.txt
+
+# Set API key
+export GEMINI_API_KEY="your-key"
+
+# Run on specific files
+python integrity_agent.py --code src/auth.py src/api.py
+
+# Specify doc file
+python integrity_agent.py --code src/auth.py --doc docs/AUTH.md
+
+# JSON output for CI/scripts
+python integrity_agent.py --code src/*.py --json
 ```
 
-**Output:**
-```text
-🚨 DRIFT DETECTED!
-Reason: Code implements 'guest' access, but docs specify 'admin-only'.
-Suggestion: Update docs to reflect guest access.
+When drift is detected in interactive mode, DockDesk offers to auto-fix your docs:
 
-🤖 DockDesk can automatically fix the documentation.
-Do you want to overwrite 'docs/feature_specs.md' with the fixed version? [y/N]: y
-✅ Documentation updated successfully!
+```
+DockDesk Audit
+Status: DRIFT DETECTED
+Risk Level: HIGH
+Issues Found: 2
+
+Apply fixes automatically? [y/N]: y
+Fixed README.md
+Fixed docs/API.md
 ```
 
-### 🤖 For AI Agents (JSON Mode)
+## Integrations
 
-Agents can invoke `sauce.py` with the `--json` flag to get machine-readable output. This allows agents to self-correct and verify their own code generation against existing documentation.
+### Slack Alerts
+
+```yaml
+slack_webhook: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+Receive notifications when HIGH or MEDIUM risk drift is detected.
+
+### Discord Alerts
+
+```yaml
+discord_webhook: ${{ secrets.DISCORD_WEBHOOK }}
+```
+
+## How It Works
+
+**1. Discovery**
+- Scan workspace for all documentation
+- Extract docstrings from code files
+- Match docs to changed files by relevance
+
+**2. Analysis**
+- Extract code intent using Gemini 2.0
+- Compare against all relevant documentation
+- Identify contradictions, missing info, outdated examples
+
+**3. Reporting**
+- Post PR review with inline suggestion blocks
+- One-click "Commit suggestion" in GitHub UI
+- Alert via Slack/Discord if configured
+
+## Outputs
+
+The action provides these outputs for downstream steps:
+
+| Output | Description |
+|--------|-------------|
+| `drift_detected` | `true` if documentation drift was found |
+| `risk_level` | `HIGH`, `MEDIUM`, or `LOW` |
+| `issues_count` | Number of drift issues found |
+
+## AI Agent Integration
+
+DockDesk works as a verification layer for AI coding agents:
 
 ```bash
-python sauce.py src/my_feature.py docs/feature_specs.md --json
+# JSON mode for programmatic use
+python integrity_agent.py --code generated_code.py --json
 ```
 
-**Output:**
+Returns structured output:
 
 ```json
 {
-  "has_contradiction": true,
-  "reason": "Code implements 'guest' access, but docs specify 'admin-only'.",
-  "suggested_fix_description": "Update docs to reflect guest access.",
-  "new_doc_content": "# Feature Specs\n\n..."
+  "has_drift": true,
+  "risk_level": "HIGH",
+  "summary": "Code implements guest access, but docs specify admin-only",
+  "issues": [
+    {
+      "file_path": "README.md",
+      "line_number": 42,
+      "original_text": "Only administrators can access this endpoint",
+      "suggested_text": "Both guests and administrators can access this endpoint",
+      "severity": "HIGH",
+      "description": "Access control changed from admin-only to include guests"
+    }
+  ],
+  "fixed_docs": {
+    "README.md": "# Full fixed content..."
+  }
 }
 ```
 
-<div align="center"> Built by Vatsa </div> ```
+## License
+
+MIT License - see [LICENSE](LICENSE)

@@ -1,61 +1,75 @@
 name: 'dock-desk'
-description: 'AI Auditor that ensures Code matches Documentation.'
+description: 'Universal AI-powered documentation drift detector. Auto-discovers docs, works with any codebase, provides one-click GitHub suggestion fixes.'
 author: 'Srivatsa'
 branding:
-  icon: 'shield'  # Options: shield, lock, check, search, eye
-  color: 'blue'   # Options: blue, green, yellow, red, purple
+  icon: 'shield'
+  color: 'blue'
+
 inputs:
+  # Required
   gemini_api_key:
-    description: 'API Key (Gemini)'
+    description: 'Gemini API Key for AI analysis'
     required: true
   github_token:
-    description: 'GitHub Token for commenting'
+    description: 'GitHub Token for PR commenting and suggestions'
     required: true
-  code_file:
-    description: 'Path to code file (Leave as "AUTO" to scan PR changes)'
-    required: false
-    default: 'AUTO'
-  doc_file:
-    description: 'Path to doc file (AUTO to auto-detect README.md, docs/*.md, etc.)'
-    required: false
-    default: 'AUTO'
-  fail_on_drift:
-    description: 'Fail the workflow if drift is detected (true/false)'
-    required: false
-    default: 'true'
-  groq_api_key:
-    description: 'Groq API Key (Free fallback if Gemini quota exceeded)'
-    required: false
-  slack_webhook:
-    description: 'Slack Webhook URL for human-in-the-loop alerts'
-    required: false
-  discord_webhook:
-    description: 'Discord Webhook URL for alerts'
-    required: false
   github_repository:
     description: 'GitHub Repository (owner/repo)'
     required: true
   pr_number:
     description: 'Pull Request Number'
     required: true
+
+  # Code Analysis
+  code_files:
+    description: 'Space-separated paths to code files to analyze (from changed-files action)'
+    required: false
+    default: 'AUTO'
+  
+  # Documentation Discovery
+  doc_file:
+    description: 'Path to doc file OR "AUTO" to auto-discover all documentation (markdown, docstrings, JSDoc, etc.)'
+    required: false
+    default: 'AUTO'
+  
+  # Behavior
+  fail_on_drift:
+    description: 'Fail the workflow if drift is detected (true/false)'
+    required: false
+    default: 'true'
+  
+  # Fallback AI Provider
+  groq_api_key:
+    description: 'Groq API Key (free fallback if Gemini quota exceeded)'
+    required: false
+
+  # Alerting
+  slack_webhook:
+    description: 'Slack Webhook URL for human-in-the-loop alerts'
+    required: false
+  discord_webhook:
+    description: 'Discord Webhook URL for alerts'
+    required: false
+
 outputs:
   drift_detected:
-    description: 'True if contradiction found'
-  suggested_fix:
-    description: 'The suggested fix content'
+    description: 'True if documentation drift was detected'
+  risk_level:
+    description: 'Risk level: HIGH, MEDIUM, or LOW'
+  issues_count:
+    description: 'Number of drift issues found'
+
 runs:
   using: 'docker'
   image: 'Dockerfile'
   args:
     - --code
-    - ${{ inputs.code_file }}
+    - ${{ inputs.code_files }}
     - --doc
     - ${{ inputs.doc_file }}
     - --fail-on-drift
     - ${{ inputs.fail_on_drift }}
   env:
-    # 🚨 CRITICAL FIX: Map the input 'gemini_api_key' to the env var 'GEMINI_API_KEY'
-    # The Python script reads os.getenv("GEMINI_API_KEY"), so this must match!
     GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
     GROQ_API_KEY: ${{ inputs.groq_api_key }}
     SLACK_WEBHOOK: ${{ inputs.slack_webhook }}
