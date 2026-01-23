@@ -531,7 +531,8 @@ class DockGuard:
     def __init__(self, gemini_key: str = None, groq_key: str = None):
         self.gemini_client = genai.Client(api_key=gemini_key) if gemini_key else None
         self.groq_client = Groq(api_key=groq_key) if groq_key else None
-        self.gemini_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        # Models in order of preference - gemini-flash-latest often has separate quota
+        self.gemini_models = ['gemini-2.0-flash-lite', 'gemini-flash-latest', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash']
         self.groq_models = ['llama-3.3-70b-versatile', 'llama3-70b-8192', 'mixtral-8x7b-32768']
 
     def _generate(self, prompt: str, response_schema: Any = None) -> Any:
