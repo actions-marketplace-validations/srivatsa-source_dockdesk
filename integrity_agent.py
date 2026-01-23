@@ -14,6 +14,7 @@ import re
 import ast
 import json
 import glob
+import time
 import argparse
 import requests
 from pathlib import Path
@@ -534,25 +535,38 @@ class DockGuard:
         self.groq_models = ['llama-3.3-70b-versatile', 'llama3-70b-8192', 'mixtral-8x7b-32768']
 
     def _generate(self, prompt: str, response_schema: Any = None) -> Any:
-        """Generate response from AI, with fallback between providers."""
-        # Try Gemini first
+        """Generate response from AI, with fallback between providers and retry logic."""
+        last_error = None
+        
+        # Try Gemini first with retry logic for rate limits
         if self.gemini_client:
             config = types.GenerateContentConfig(
                 response_mime_type="application/json" if response_schema else "text/plain"
             )
             for model in self.gemini_models:
-                try:
-                    response = self.gemini_client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config=config
-                    )
-                    if response_schema:
-                        return json.loads(response.text)
-                    return response.text
-                except Exception as e:
-                    console.print(f"[yellow]Gemini {model} failed: {e}[/yellow]")
-                    continue
+                # Retry up to 3 times with exponential backoff for rate limits
+                for attempt in range(3):
+                    try:
+                        response = self.gemini_client.models.generate_content(
+                            model=model,
+                            contents=prompt,
+                            config=config
+                        )
+                        if response_schema:
+                            return json.loads(response.text)
+                        return response.text
+                    except Exception as e:
+                        last_error = e
+                        error_str = str(e).lower()
+                        # Check if it's a rate limit error
+                        if '429' in str(e) or 'resource_exhausted' in error_str or 'quota' in error_str:
+                            if attempt < 2:  # Don't wait on last attempt
+                                wait_time = (attempt + 1) * 5  # 5s, 10s
+                                console.print(f"[yellow]Gemini {model} rate limited, waiting {wait_time}s (attempt {attempt + 1}/3)...[/yellow]")
+                                time.sleep(wait_time)
+                                continue
+                        console.print(f"[yellow]Gemini {model} failed: {e}[/yellow]")
+                        break  # Move to next model
 
         # Fallback to Groq
         if self.groq_client:
@@ -572,8 +586,16 @@ class DockGuard:
                 except Exception as e:
                     console.print(f"[yellow]Groq {model} failed: {e}[/yellow]")
                     continue
+        else:
+            console.print("[yellow]Groq API key not configured. Add GROQ_API_KEY secret for fallback.[/yellow]")
 
-        raise RuntimeError("All AI providers failed. Check your API keys and quotas.")
+        # Provide helpful error message
+        error_msg = "All AI providers failed. "
+        if not self.groq_client:
+            error_msg += "TIP: Add GROQ_API_KEY secret for free fallback (https://console.groq.com)."
+        else:
+            error_msg += "Check your API keys and quotas."
+        raise RuntimeError(error_msg)
 
     def analyze(self, code_content: str, docs: List[DocumentationSource]) -> AnalysisResult:
         """
