@@ -706,6 +706,15 @@ def main():
     parser.add_argument('--json', action='store_true', help="Output JSON for programmatic use")
     args = parser.parse_args()
 
+    # Change to workspace directory for all file operations
+    workspace_path = Path(args.workspace).resolve()
+    if workspace_path.exists() and workspace_path.is_dir():
+        os.chdir(workspace_path)
+        console.print(f"[dim]Working directory: {workspace_path}[/dim]")
+    else:
+        console.print(f"[bold red]Error: Workspace directory not found: {args.workspace}[/bold red]")
+        sys.exit(1)
+
     # Load environment
     gemini_key = os.getenv("GEMINI_API_KEY")
     groq_key = os.getenv("GROQ_API_KEY")
@@ -719,8 +728,8 @@ def main():
         console.print("[bold red]Error: No API key found. Set GEMINI_API_KEY or GROQ_API_KEY.[/bold red]")
         sys.exit(1)
 
-    # Initialize discovery
-    discovery = DocumentationDiscovery(args.workspace)
+    # Initialize discovery with current directory (already changed to workspace)
+    discovery = DocumentationDiscovery('.')
 
     # Get code files
     code_files = []
@@ -728,16 +737,31 @@ def main():
         for item in args.code:
             code_files.extend(item.split())
     
-    if not code_files or code_files == ['AUTO']:
-        console.print("[yellow]No code files specified. Scanning workspace for changes...[/yellow]")
-        # In AUTO mode without specific files, we can't do meaningful analysis
-        console.print("[bold red]Error: Please specify code files to analyze with --code[/bold red]")
-        sys.exit(1)
+    # Handle AUTO mode - auto-discover code files in workspace
+    if not code_files or code_files == ['AUTO'] or (len(code_files) == 1 and code_files[0].upper() == 'AUTO'):
+        console.print("[cyan]Auto-discovering code files in workspace...[/cyan]")
+        # Discover all code files in the workspace
+        discovered_files = []
+        for lang, patterns in discovery.CODE_PATTERNS.items():
+            for pattern in patterns:
+                for path in discovery._glob_with_exclusions(pattern):
+                    discovered_files.append(str(path))
+        
+        if discovered_files:
+            code_files = discovered_files[:50]  # Limit to 50 files to avoid overwhelming the AI
+            console.print(f"[green]Found {len(discovered_files)} code file(s), analyzing top {len(code_files)}[/green]")
+        else:
+            console.print("[bold yellow]Warning: No code files found in workspace.[/bold yellow]")
+            console.print("[dim]The workspace appears to be empty or contains no supported code files.[/dim]")
+            sys.exit(0)
 
     # Read code content
     code_content = ""
     valid_files = []
     for path in code_files:
+        # Skip if path is 'AUTO' (safety check)
+        if path.upper() == 'AUTO':
+            continue
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()

@@ -67,6 +67,8 @@ runs:
     - ${{ inputs.code_files }}
     - --doc
     - ${{ inputs.doc_file }}
+    - --workspace
+    - /github/workspace
     - --fail-on-drift
     - ${{ inputs.fail_on_drift }}
   env:
