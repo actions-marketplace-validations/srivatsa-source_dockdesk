@@ -1,81 +1,18 @@
-name: 'dock-desk'
-description: 'Universal AI-powered documentation drift detector. Auto-discovers docs, works with any codebase, provides one-click GitHub suggestion fixes.'
-author: 'Srivatsa'
+name: 'DockDesk Neural Auditor'
+description: 'Locally run semantic audit of code vs documentation using Ollama'
+author: 'DockDesk Team'
 branding:
   icon: 'shield'
-  color: 'blue'
+  color: 'green'
 
 inputs:
-  # Required
-  gemini_api_key:
-    description: 'Gemini API Key for AI analysis'
-    required: true
-  github_token:
-    description: 'GitHub Token for PR commenting and suggestions'
-    required: true
-  github_repository:
-    description: 'GitHub Repository (owner/repo)'
-    required: true
-  pr_number:
-    description: 'Pull Request Number'
-    required: true
-
-  # Code Analysis
-  code_files:
-    description: 'Space-separated paths to code files to analyze (from changed-files action)'
+  model:
+    description: 'LLM Model to use (must be available in Ollama library)'
     required: false
-    default: 'AUTO'
+    default: 'qwen2.5-coder:3b'
   
-  # Documentation Discovery
-  doc_file:
-    description: 'Path to doc file OR "AUTO" to auto-discover all documentation (markdown, docstrings, JSDoc, etc.)'
-    required: false
-    default: 'AUTO'
-  
-  # Behavior
-  fail_on_drift:
-    description: 'Fail the workflow if drift is detected (true/false)'
-    required: false
-    default: 'true'
-  
-  # Fallback AI Provider
-  groq_api_key:
-    description: 'Groq API Key (free fallback if Gemini quota exceeded)'
-    required: false
-
-  # Alerting
-  slack_webhook:
-    description: 'Slack Webhook URL for human-in-the-loop alerts'
-    required: false
-  discord_webhook:
-    description: 'Discord Webhook URL for alerts'
-    required: false
-
-outputs:
-  drift_detected:
-    description: 'True if documentation drift was detected'
-  risk_level:
-    description: 'Risk level: HIGH, MEDIUM, or LOW'
-  issues_count:
-    description: 'Number of drift issues found'
-
 runs:
   using: 'docker'
   image: 'Dockerfile'
-  args:
-    - --code
-    - ${{ inputs.code_files }}
-    - --doc
-    - ${{ inputs.doc_file }}
-    - --workspace
-    - /github/workspace
-    - --fail-on-drift
-    - ${{ inputs.fail_on_drift }}
   env:
-    GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
-    GROQ_API_KEY: ${{ inputs.groq_api_key }}
-    SLACK_WEBHOOK: ${{ inputs.slack_webhook }}
-    DISCORD_WEBHOOK: ${{ inputs.discord_webhook }}
-    GITHUB_TOKEN: ${{ inputs.github_token }}
-    GITHUB_REPOSITORY: ${{ inputs.github_repository }}
-    PR_NUMBER: ${{ inputs.pr_number }}
+    MODEL_NAME: ${{ inputs.model }}
