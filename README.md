@@ -1,4 +1,4 @@
-# �️ DockDesk Integrity Agent
+# DockDesk Integrity Agent
 
 > **Local-First Semantic Documentation Auditor**  
 > *Ensure your code and documentation never drift apart—without sending a single byte to the cloud.*
@@ -9,30 +9,30 @@
 
 ---
 
-## 🚀 What is DockDesk?
+## What is DockDesk?
 
 DockDesk is a "Neural Auditor" that runs entirely on your local machine or CI runner. Instead of just checking for typos, it reads your **Code Logic** and compares it against your **Documentation Claims**.
 
 If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key", DockDesk will:
-1.  🚨 **Flag the Semantic Drift.**
-2.  🧠 **Understand the Discrepancy.**
-3.  ✍️ **Auto-generate a Fix** for your documentation.
+1.  **Flag the Semantic Drift.**
+2.  **Understand the Discrepancy.**
+3.  **Auto-generate a Fix** for your documentation.
 
-### 🛑 The Problem It Solves
+### The Problem It Solves
 *   **Privacy Risks**: Most AI auditors require sending your proprietary code to cloud APIs (OpenAI, etc.). DockDesk runs locally.
 *   **Documentation Rot**: Developers update code but forget the docs. Static analysis tools can't "read" English instructions.
 *   **Infrastructure Cost**: No API credits needed. Runs on efficient "Small Language Models" (SLMs) like `qwen2.5-coder:3b`.
 
 ---
 
-## 🏗️ Architecture: The Neural Loop
+## Architecture: The Neural Loop
 
 DockDesk bridges the gap between deterministic CI pipelines and probabilistic AI reasoning using a **Merkle-SLM Hybrid Architecture**.
 
 ```mermaid
 graph TD
     A[Developer Commit] --> B{1. Merkle Check};
-    B -- Hash Match --> C[✅ Skip Audit];
+    B -- Hash Match --> C[Skip Audit];
     B -- Hash Mismatch --> D[2. Neural Loop];
     
     subgraph "Local Inference Engine"
@@ -43,8 +43,8 @@ graph TD
     end
     
     H --> I{3. Drift Detected?};
-    I -- No --> J[✅ PASS];
-    I -- Yes --> K[❌ FAIL];
+    I -- No --> J[PASS];
+    I -- Yes --> K[FAIL];
     
     K --> L[Generate Fix Payload];
     L --> M[Auto-Patch README.md];
@@ -61,7 +61,7 @@ graph TD
 
 ---
 
-## ⚡ Getting Started
+## Getting Started
 
 ### Prerequisites
 *   **Python 3.11+**
@@ -102,7 +102,7 @@ python auditor_slm.py --ci
 
 ---
 
-## 🤖 GitHub Actions Integration
+## GitHub Actions Integration
 
 Add this to your `.github/workflows/audit.yml` to audit every Pull Request automatically.
 
@@ -133,10 +133,10 @@ jobs:
 
 ---
 
-## 🔮 Roadmap v2.0
+## Roadmap v2.0
 - [ ] **Vector Hashing**: Use embeddings instead of SHA-256 for semantic change detection.
 - [ ] **Dependency Walking**: Automatically find which docs reference the modified code.
 - [ ] **Multi-Model Voting**: Use a distinct "Critic" model to validate fixes before applying.
 
 ---
-*Built with ❤️ by the DockDesk Team*
+*Built by the DockDesk Team*
