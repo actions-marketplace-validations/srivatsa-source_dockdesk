@@ -1,5 +1,5 @@
 name: 'DockDesk Neural Auditor'
-description: 'Locally run semantic audit of code vs documentation using Ollama'
+description: 'Local-first semantic audit of code vs documentation using Ollama. Auto-tunes model selection for your codebase.'
 author: 'DockDesk Team'
 branding:
   icon: 'shield'
@@ -7,12 +7,68 @@ branding:
 
 inputs:
   model:
-    description: 'LLM Model to use (must be available in Ollama library)'
+    description: |
+      LLM Model to use. Must be available in Ollama library.
+      Recommended audit-suitable models:
+        - qwen2.5-coder:1.5b (fastest, <5k LOC)
+        - qwen2.5-coder:3b (default, <10k LOC)
+        - qwen2.5-coder:7b (balanced, 10-50k LOC)
+        - codellama:7b (alternative, 10-50k LOC)
+        - qwen2.5-coder:14b (thorough, >50k LOC)
+      Use 'auto' for automatic selection based on codebase size.
     required: false
     default: 'qwen2.5-coder:3b'
   
+  auto_tune:
+    description: 'Automatically select the best model based on codebase LOC (overrides model input)'
+    required: false
+    default: 'false'
+  
+  ollama_host:
+    description: 'Ollama API endpoint (for self-hosted instances)'
+    required: false
+    default: 'http://localhost:11434'
+  
+  fail_on_risk:
+    description: 'Risk level that triggers workflow failure (HIGH, MEDIUM, LOW)'
+    required: false
+    default: 'HIGH'
+  
+  output_format:
+    description: 'Output format: md (markdown), json, sarif (for VS Code/IDE integration)'
+    required: false
+    default: 'md'
+  
+  auto_fix:
+    description: 'Automatically apply documentation fixes'
+    required: false
+    default: 'false'
+  
+  workspace_path:
+    description: 'Path to the workspace to audit (relative to repository root)'
+    required: false
+    default: '.'
+
+outputs:
+  report_path:
+    description: 'Path to the generated audit report'
+  status:
+    description: 'Audit status (pass/fail)'
+  files_audited:
+    description: 'Number of files audited'
+  high_risk_count:
+    description: 'Number of HIGH risk findings'
+  fixes_applied:
+    description: 'Number of fixes automatically applied'
+
 runs:
   using: 'docker'
   image: 'Dockerfile'
   env:
     MODEL_NAME: ${{ inputs.model }}
+    DOCKDESK_AUTO_TUNE: ${{ inputs.auto_tune }}
+    DOCKDESK_OLLAMA_HOST: ${{ inputs.ollama_host }}
+    DOCKDESK_FAIL_ON_RISK: ${{ inputs.fail_on_risk }}
+    DOCKDESK_OUTPUT_FORMAT: ${{ inputs.output_format }}
+    DOCKDESK_AUTO_FIX: ${{ inputs.auto_fix }}
+    DOCKDESK_WORKSPACE: ${{ inputs.workspace_path }}

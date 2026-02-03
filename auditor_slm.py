@@ -1,268 +1,389 @@
-import hashlib
-import requests
-import json
-import os
-import sys
-import re
-import argparse
-from colorama import Fore, Style, init
-
-# Initialize Colorama with autoreset to avoid bleeding colors
-init(autoreset=True)
-
-class NeuralAuditor:
-    def __init__(self, ci_mode=False):
-        self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
-        self.model = os.getenv("MODEL_NAME", "qwen2.5-coder:3b")
-        self.temperature = 0.1 # Strict deterministic output
-        self.ci_mode = ci_mode
-        
-    def log_info(self, text):
-        print(f"{Fore.CYAN}[*] {text}{Style.RESET_ALL}")
-
-    def log_success(self, text):
-        print(f"{Fore.GREEN}[+] {text}{Style.RESET_ALL}")
-        
-    def log_fail(self, text):
-        print(f"{Fore.RED}[!] {text}{Style.RESET_ALL}")
-
-    def log_header(self, text):
-        print(f"\n{Fore.MAGENTA}=== {text} ==={Style.RESET_ALL}")
-
-    def calculate_merkle_hash(self, content):
-        """
-        Calculates SHA-256 hash to act as a Merkle Leaf Node.
-        """
-        return hashlib.sha256(content.encode('utf-8')).hexdigest()
-
-    def clean_json(self, raw_text):
-        """
-        Robust JSON extraction. approaches:
-        1. Parse directly.
-        2. Extract content between ```json ... ```.
-        3. Extract content between first { and last }.
-        4. Fallback regex parsing for malformed JSON (common with 3B models).
-        """
-        try:
-            return json.loads(raw_text)
-        except json.JSONDecodeError:
-            pass
-
-        # Attempt to find markdown json block
-        match = re.search(r"```json\s*(.*?)\s*```", raw_text, re.DOTALL)
-        if match:
-            text = match.group(1)
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                pass
-        
-        # Attempt to find raw braces
-        match = re.search(r"(\{.*\})", raw_text, re.DOTALL)
-        if match:
-            text = match.group(1)
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                pass
-        
-        # Fallback: Regex Scraping for "Broken" JSON
-        # This handles cases where the model puts real newlines inside strings
-        fallback = {}
-        
-        # Extract Status
-        s_m = re.search(r'"status":\s*"(\w+)"', raw_text)
-        if s_m: fallback["status"] = s_m.group(1)
-        
-        # Extract Risk
-        r_m = re.search(r'"risk":\s*"(\w+)"', raw_text)
-        if r_m: fallback["risk"] = r_m.group(1)
-
-        # Extract Requirements (Simple single line assumption or lazy dotall)
-        c_m = re.search(r'"code_requirement":\s*"(.*?)"', raw_text, re.DOTALL)
-        if c_m: fallback["code_requirement"] = c_m.group(1)
-        
-        d_m = re.search(r'"doc_requirement":\s*"(.*?)"', raw_text, re.DOTALL)
-        if d_m: fallback["doc_requirement"] = d_m.group(1)
-        
-        # Extract Fix (Heuristic: grab everything after "fix": until the closing brace)
-        # We look for "fix": ... and grab until the last quote before the final }
-        # This is tricky, so we take a greedy approach from "fix": " until " \n }
-        f_m = re.search(r'"fix":\s*"(.*)"\s*\}\s*$', raw_text, re.DOTALL) 
-        if not f_m:
-             # Try looser match if the closing quote is missing or messy
-             f_m = re.search(r'"fix":\s*"?([\s\S]*?)"?\s*\}\s*$', raw_text, re.DOTALL)
-        
-        if f_m:
-            fallback["fix"] = f_m.group(1)
-        
-        if "status" in fallback:
-            return fallback
-
-        return None
-
-    def query_model(self, prompt, system_role):
-        """
-        Sends request to Ollama Chat API.
-        """
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_role},
-                {"role": "user", "content": prompt}
-            ],
-            "stream": False,
-            "options": {
-                "temperature": self.temperature
-            }
-        }
-        
-        try:
-            response = requests.post(self.ollama_url, json=payload, timeout=120)
-            response.raise_for_status()
-            return response.json().get("message", {}).get("content", "")
-        except requests.exceptions.ConnectionError:
-            self.log_fail(f"Could not connect to {self.ollama_url}. Is Ollama running?")
-            sys.exit(1)
-        except Exception as e:
-            self.log_fail(f"Model query failed: {e}")
-            sys.exit(1)
-
-    def save_report(self, result):
-        """Generates a Markdown report for CI/CD pipelines."""
-        status_icon = "❌" if result.get("status") == "FAIL" else "✅"
-        report = f"""# 🛡️ DockDesk Integrity Report
-**Status:** {status_icon} {result.get('status')}
-**Risk Level:** {result.get('risk')}
-
-## 🔍 Logic Analysis
-| Scope | Detected Logic |
-|-------|----------------|
-| **Code** | `{result.get('code_requirement')}` |
-| **Docs** | `{result.get('doc_requirement')}` |
-
-## 🛠️ Proposed Fix
-*(Applied automatically if running in fix-mode, otherwise suggestion below)*
-
-```markdown
-{result.get('fix')}
-```
-
-> Generated by DockDesk Neural Auditor ({self.model})
+#!/usr/bin/env python3
 """
-        try:
-            with open("audit_report.md", "w", encoding="utf-8") as f:
-                f.write(report)
-            self.log_info("Report saved to audit_report.md")
-        except Exception as e:
-            self.log_fail(f"Could not save report: {e}")
+DockDesk - Semantic Documentation & Code Auditor
 
-    def run_audit(self):
-        self.log_header(f"DockDesk Neural Auditor ({self.model}){' [CI MODE]' if self.ci_mode else ''}")
+A local-first, AI-powered auditor that ensures code and documentation stay in sync.
+Supports multiple Ollama models with auto-tuning based on codebase size.
+"""
+
+import argparse
+import sys
+import os
+import json
+from rich.console import Console
+from rich.panel import Panel
+
+console = Console()
+
+
+def run_audit(args):
+    """Run the main audit workflow."""
+    from src.graph import create_audit_graph
+    from src.config import build_config, OutputFormat, RiskLevel
+    from src.models import (
+        auto_select_model, validate_model, get_model_info,
+        get_model_recommendation_message, count_lines_of_code, DEFAULT_MODEL
+    )
+    from src.changelog import ChangelogWriter
+    from src.fixer import apply_fixes_batch
+    
+    # Build config from CLI args
+    cli_args = {
+        "workspace": args.workspace,
+        "model": args.model,
+        "auto_tune": args.auto_tune,
+        "auto_fix": args.fix,
+        "fix_code": args.fix_code,
+        "ci_mode": args.ci,
+        "verbose": args.verbose,
+        "output_format": args.format,
+        "output_file": args.output,
+        "fail_on_risk": args.fail_on_risk,
+        "skip_rag": args.skip_rag,
+    }
+    
+    config = build_config(cli_args, args.workspace)
+    workspace = config.workspace
+    
+    # Model selection
+    model = config.model
+    model_tier = "unknown"
+    total_loc = count_lines_of_code(workspace)
+    
+    if config.auto_tune:
+        model, reason = auto_select_model(workspace)
+        console.print(f"[cyan]🧠 Auto-tuned model: {model} ({reason})[/cyan]")
+        model_info = get_model_info(model)
+        model_tier = model_info.tier.value if model_info else "unknown"
+    else:
+        # Validate selected model
+        is_valid, message = validate_model(model, strict=False)
+        if not is_valid:
+            console.print(f"[red]{message}[/red]")
+            if config.ci_mode:
+                sys.exit(1)
+            return
+        console.print(f"[dim]{message}[/dim]")
         
-        # 1. Load Artifacts
-        try:
-            with open("auth.py", "r", encoding="utf-8") as f:
-                code_content = f.read()
-            with open("README.md", "r", encoding="utf-8") as f:
-                doc_content = f.read()
-        except FileNotFoundError:
-            self.log_fail("Missing 'auth.py' or 'README.md'. Cannot proceed.")
+        # Show recommendation
+        rec_message = get_model_recommendation_message(model, workspace)
+        console.print(f"[dim]{rec_message}[/dim]")
+        
+        model_info = get_model_info(model)
+        model_tier = model_info.tier.value if model_info else "unknown"
+    
+    console.print(Panel.fit(
+        f"[bold blue]DockDesk Semantic Auditor[/bold blue]\n"
+        f"Workspace: {workspace}\n"
+        f"Model: {model} ({model_tier})\n"
+        f"LOC: {total_loc:,}",
+        border_style="blue"
+    ))
+    
+    # Initialize changelog
+    changelog = ChangelogWriter(workspace, config.changelog_file) if config.enable_changelog else None
+    
+    # Create and run the audit graph
+    app = create_audit_graph()
+    
+    initial_state = {
+        "workspace_path": workspace,
+        "discovered_files": [],
+        "changed_files": [],
+        "file_contents": {},
+        "file_hashes": {},
+        "doc_sources": [],
+        "context_data": "",
+        "audit_results": [],
+        "mermaid_graph": "",
+        # New fields
+        "config": config,
+        "model": model,
+        "model_tier": model_tier,
+        "total_loc": total_loc,
+    }
+    
+    try:
+        result = app.invoke(initial_state)
+        audit_results = result.get("audit_results", [])
+        
+        # Apply fixes if requested
+        fix_results = None
+        if config.auto_fix and audit_results:
+            console.print("\n[bold]Applying fixes...[/bold]")
+            fix_results = apply_fixes_batch(
+                audit_results=audit_results,
+                workspace=workspace,
+                allow_code_fixes=config.fix_code,
+                dry_run=False,
+                interactive=not config.ci_mode
+            )
+        
+        # Write changelog
+        if changelog:
+            changelog.finalize_run(
+                audit_results=audit_results,
+                config=config,
+                files_discovered=len(result.get("discovered_files", [])),
+                model=model,
+                model_tier=model_tier,
+                total_loc=total_loc,
+                fix_results=fix_results
+            )
+        
+        # Output handling
+        report_path = result.get("report_path", "audit_report.md")
+        
+        if config.output_format == OutputFormat.JSON:
+            json_output = {
+                "status": "complete",
+                "model": model,
+                "model_tier": model_tier,
+                "total_loc": total_loc,
+                "files_audited": len(audit_results),
+                "results": audit_results,
+                "fixes_applied": len([f for f in (fix_results or []) if f.status.value == "applied"])
+            }
+            if config.output_file:
+                with open(config.output_file, 'w') as f:
+                    json.dump(json_output, f, indent=2, default=str)
+                console.print(f"[green]JSON report: {config.output_file}[/green]")
+            else:
+                print(json.dumps(json_output, indent=2, default=str))
+                
+        elif config.output_format == OutputFormat.SARIF:
+            sarif_output = generate_sarif(audit_results, workspace)
+            sarif_path = config.output_file or "audit_report.sarif"
+            with open(sarif_path, 'w') as f:
+                json.dump(sarif_output, f, indent=2)
+            console.print(f"[green]SARIF report: {sarif_path}[/green]")
+        else:
+            console.print(f"\n[green]✓ Audit Complete. Report: {report_path}[/green]")
+        
+        # Risk gating for CI
+        if config.ci_mode:
+            high_risk_count = sum(1 for r in audit_results if r.get("risk") == "HIGH")
+            medium_risk_count = sum(1 for r in audit_results if r.get("risk") == "MEDIUM")
+            
+            should_fail = False
+            if config.fail_on_risk == RiskLevel.HIGH and high_risk_count > 0:
+                should_fail = True
+            elif config.fail_on_risk == RiskLevel.MEDIUM and (high_risk_count > 0 or medium_risk_count > 0):
+                should_fail = True
+            elif config.fail_on_risk == RiskLevel.LOW and audit_results:
+                fail_count = sum(1 for r in audit_results if r.get("status") == "FAIL")
+                should_fail = fail_count > 0
+            
+            if should_fail:
+                console.print(f"[red]::error::Audit failed risk threshold ({config.fail_on_risk.value})[/red]")
+                sys.exit(1)
+                
+    except Exception as e:
+        console.print(f"[red]Audit Failed: {e}[/red]")
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        if args.ci:
             sys.exit(1)
 
-        # 2. Merkle Hashing (Drift Detection)
-        code_hash = self.calculate_merkle_hash(code_content)
-        self.log_success(f"Merkle Hash (auth.py): {code_hash}")
 
-        # 3. Construct Chain-of-Thought Prompt
-        system_prompt = """
-        You are a Lead Security Auditor.
-        Task: specific logic check between Code and Documentation.
-        
-        Follow this thought process:
-        1. EXTRACT: What authentication logic/param does the CODE require? (e.g. 'email', 'user_id', 'password')
-        2. EXTRACT: What authentication logic/param does the DOCS claim is used?
-        3. COMPARE: Do they match? (Ignore variable naming conventions, focus on the logic).
-        
-        Your output must be a valid JSON object ONLY. Do not write introductory text.
-        IMPORTANT: formatting rules:
-        1. "fix" value MUST be a single line string with all newlines escaped as \\n.
-        2. Do not include real line breaks inside the JSON string values.
-        
-        Format:
-        {
-            "code_requirement": "summary of code logic",
-            "doc_requirement": "summary of doc claims",
-            "status": "PASS" or "FAIL",
-            "risk": "HIGH" or "LOW",
-            "fix": "Full markdown text of the corrected README.md (only if FAIL, else null)"
-        }
+def generate_sarif(audit_results: list, workspace: str) -> dict:
+    """Generate SARIF format output for IDE integration."""
+    results = []
+    
+    for r in audit_results:
+        if r.get("status") == "FAIL":
+            level = "error" if r.get("risk") == "HIGH" else "warning"
+            results.append({
+                "ruleId": "dockdesk/semantic-drift",
+                "level": level,
+                "message": {
+                    "text": r.get("summary", "Documentation drift detected")
+                },
+                "locations": [{
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": os.path.relpath(r.get("file", ""), workspace).replace("\\", "/")
+                        }
+                    }
+                }],
+                "fixes": [{
+                    "description": {"text": "Apply suggested fix"},
+                    "artifactChanges": [{
+                        "artifactLocation": {
+                            "uri": os.path.relpath(r.get("file", ""), workspace).replace("\\", "/")
+                        },
+                        "replacements": [{
+                            "deletedRegion": {"startLine": 1},
+                            "insertedContent": {"text": r.get("fix", "")}
+                        }]
+                    }]
+                }] if r.get("fix") else []
+            })
+    
+    return {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "DockDesk",
+                    "version": "2.0.0",
+                    "informationUri": "https://github.com/dockdesk/auditor",
+                    "rules": [{
+                        "id": "dockdesk/semantic-drift",
+                        "name": "SemanticDrift",
+                        "shortDescription": {"text": "Documentation does not match code behavior"},
+                        "fullDescription": {"text": "The documentation claims differ from actual code implementation"},
+                        "helpUri": "https://github.com/dockdesk/auditor#semantic-drift"
+                    }]
+                }
+            },
+            "results": results
+        }]
+    }
+
+
+def list_models_cmd(args):
+    """List available audit-suitable models."""
+    from src.models import print_model_list
+    print_model_list()
+
+
+def init_config_cmd(args):
+    """Initialize a sample configuration file."""
+    from src.config import create_sample_config
+    
+    config_content = create_sample_config(args.workspace, format="yaml")
+    config_path = os.path.join(args.workspace, "dockdesk.yml")
+    
+    if os.path.exists(config_path) and not args.force:
+        console.print(f"[yellow]Config already exists: {config_path}[/yellow]")
+        console.print("Use --force to overwrite")
+        return
+    
+    with open(config_path, 'w') as f:
+        f.write(config_content)
+    
+    console.print(f"[green]✓ Created config: {config_path}[/green]")
+
+
+def dashboard_cmd(args):
+    """Launch the dashboard or export data."""
+    from src.changelog import ChangelogReader
+    
+    changelog_path = os.path.join(args.workspace, "audit_history.jsonl")
+    
+    if not os.path.exists(changelog_path):
+        console.print("[yellow]No audit history found. Run an audit first.[/yellow]")
+        return
+    
+    reader = ChangelogReader(changelog_path)
+    
+    if args.export:
+        data = reader.export_for_dashboard()
+        export_path = args.export
+        with open(export_path, 'w') as f:
+            json.dump(data, f, indent=2, default=str)
+        console.print(f"[green]✓ Exported dashboard data: {export_path}[/green]")
+    else:
+        # Print stats summary
+        stats = reader.get_stats_summary()
+        console.print(Panel.fit(
+            f"[bold]DockDesk Audit Statistics[/bold]\n\n"
+            f"Total Audits: {stats.get('total_audits', 0)}\n"
+            f"Files Audited: {stats.get('total_files_audited', 0):,}\n"
+            f"Fixes Applied: {stats.get('total_fixes_applied', 0)}\n"
+            f"Avg Duration: {stats.get('average_duration_seconds', 0):.1f}s\n\n"
+            f"[dim]Risk Distribution:[/dim]\n"
+            f"  HIGH: {stats.get('risk_totals', {}).get('HIGH', 0)}\n"
+            f"  MEDIUM: {stats.get('risk_totals', {}).get('MEDIUM', 0)}\n"
+            f"  LOW: {stats.get('risk_totals', {}).get('LOW', 0)}\n\n"
+            f"[dim]Use --export <file.json> to export for React dashboard[/dim]",
+            border_style="cyan"
+        ))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="DockDesk - Semantic Documentation & Code Auditor",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python auditor_slm.py                    # Audit current directory
+  python auditor_slm.py --auto-tune        # Auto-select best model for codebase
+  python auditor_slm.py --model codellama:7b --fix  # Use specific model with auto-fix
+  python auditor_slm.py --ci --fail-on-risk HIGH    # CI mode with risk gating
+  python auditor_slm.py --format sarif     # Output SARIF for VS Code
+  python auditor_slm.py list-models        # Show available models
+  python auditor_slm.py dashboard --export data.json  # Export for React dashboard
         """
-        
-        user_prompt = f"""
-        DATA:
-        --- CODE (auth.py) ---
-        {code_content}
-        --- DOCS (README.md) ---
-        {doc_content}
-        """
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+    
+    # Main audit command (default)
+    audit_parser = subparsers.add_parser("audit", help="Run semantic audit")
+    add_audit_args(audit_parser)
+    
+    # List models command
+    list_parser = subparsers.add_parser("list-models", help="List audit-suitable models")
+    list_parser.set_defaults(func=list_models_cmd)
+    
+    # Init config command
+    init_parser = subparsers.add_parser("init", help="Initialize configuration file")
+    init_parser.add_argument("--workspace", default=".", help="Workspace path")
+    init_parser.add_argument("--force", action="store_true", help="Overwrite existing config")
+    init_parser.set_defaults(func=init_config_cmd)
+    
+    # Dashboard command
+    dash_parser = subparsers.add_parser("dashboard", help="View or export audit statistics")
+    dash_parser.add_argument("--workspace", default=".", help="Workspace path")
+    dash_parser.add_argument("--export", metavar="FILE", help="Export data to JSON file")
+    dash_parser.set_defaults(func=dashboard_cmd)
+    
+    # Add audit args to main parser for backward compatibility
+    add_audit_args(parser)
+    
+    args = parser.parse_args()
+    
+    # Handle subcommands
+    if args.command == "list-models":
+        list_models_cmd(args)
+    elif args.command == "init":
+        init_config_cmd(args)
+    elif args.command == "dashboard":
+        dashboard_cmd(args)
+    else:
+        # Default: run audit
+        run_audit(args)
 
-        self.log_info(f"Analyzing Logic Consistency...")
-        raw_response = self.query_model(user_prompt, system_prompt)
-        
-        # 4. Parse & React
-        result = self.clean_json(raw_response)
-        
-        if not result:
-            self.log_fail("Failed to parse model response.")
-            print(f"{Fore.YELLOW}Raw Output:\n{raw_response}{Style.RESET_ALL}")
-            return
 
-        status = result.get("status", "UNKNOWN")
-        risk = result.get("risk", "UNKNOWN")
-        
-        if status == "FAIL":
-            self.log_header("❌ INTEGRITY VIOLATION DETECTED ❌")
-            print(f"{Fore.RED}Risk Level: {risk}")
-            print(f"Code Logic: {result.get('code_requirement')}")
-            print(f"Doc Claim:  {result.get('doc_requirement')}{Style.RESET_ALL}")
-            
-            # Save Report for CI
-            if self.ci_mode:
-                self.save_report(result)
-                print(f"::error::Integrity check failed. See audit_report.md for details.")
-                sys.exit(1)
+def add_audit_args(parser):
+    """Add audit-related arguments to a parser."""
+    # Core options
+    parser.add_argument("--workspace", "-w", default=".", help="Workspace path to audit")
+    parser.add_argument("--model", "-m", default=None, help="Ollama model to use (default: qwen2.5-coder:3b)")
+    parser.add_argument("--auto-tune", action="store_true", help="Auto-select model based on codebase size (LOC)")
+    
+    # Fix options
+    parser.add_argument("--fix", action="store_true", help="Automatically apply documentation fixes")
+    parser.add_argument("--fix-code", action="store_true", help="Also apply code fixes (use with caution)")
+    
+    # Output options
+    parser.add_argument("--format", "-f", choices=["md", "json", "sarif"], default="md",
+                       help="Output format (default: md)")
+    parser.add_argument("--output", "-o", metavar="FILE", help="Output file path")
+    
+    # CI/CD options
+    parser.add_argument("--ci", action="store_true", help="CI mode (non-interactive, exit codes)")
+    parser.add_argument("--fail-on-risk", choices=["HIGH", "MEDIUM", "LOW"], default="HIGH",
+                       help="Risk level that triggers CI failure (default: HIGH)")
+    
+    # Advanced options
+    parser.add_argument("--skip-rag", action="store_true", help="Skip RAG retrieval for faster audits")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
-            fix_content = result.get("fix")
-            if fix_content:
-                print(f"\n{Fore.CYAN}Proposed Fix Preview:{Style.RESET_ALL}")
-                print("-" * 40)
-                print(fix_content[:200] + "..." if len(fix_content) > 200 else fix_content)
-                print("-" * 40)
-                
-                choice = input(f"\n{Fore.YELLOW}[?] Apply Fix to README.md? (y/n): {Style.RESET_ALL}")
-                if choice.lower() == 'y':
-                    with open("README.md", "w", encoding="utf-8") as f:
-                        f.write(fix_content)
-                    self.log_success("Patch applied successfully.")
-                else:
-                    self.log_info("Patch skipped.")
-            else:
-                self.log_fail("No fix provided by model.")
-                
-        elif status == "PASS":
-            self.log_success("Integrity Check Passed. Logic is consistent.")
-            if self.ci_mode:
-                self.save_report(result)
-        else:
-            self.log_fail(f"Ambiguous Result: {status}")
-            if self.ci_mode:
-                sys.exit(1)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='DockDesk Neural Auditor')
-    parser.add_argument('--ci', action='store_true', help='Run in CI/CD mode (non-interactive, exit codes)')
-    args = parser.parse_args()
-
-    auditor = NeuralAuditor(ci_mode=args.ci)
-    auditor.run_audit()
+    main()

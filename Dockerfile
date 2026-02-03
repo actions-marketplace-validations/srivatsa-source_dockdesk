@@ -8,6 +8,7 @@ ENV PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ollama Binary
@@ -22,6 +23,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 WORKDIR /app
 COPY auditor_slm.py /app/auditor_slm.py
 COPY entrypoint.sh /app/entrypoint.sh
+COPY src/ /app/src/
 
 # Make entrypoint executable
 RUN chmod +x /app/entrypoint.sh

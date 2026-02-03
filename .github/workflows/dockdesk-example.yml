@@ -1,0 +1,172 @@
+# =============================================================================
+# DockDesk Semantic Auditor - GitHub Actions Workflow
+# =============================================================================
+# This workflow runs DockDesk on every pull request to ensure documentation
+# stays in sync with code changes. Copy this file to your repository's
+# .github/workflows/ directory to enable automated semantic auditing.
+# =============================================================================
+
+name: DockDesk Audit
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Ollama model to use'
+        required: false
+        default: 'qwen2.5-coder:3b'
+        type: choice
+        options:
+          - qwen2.5-coder:1.5b
+          - qwen2.5-coder:3b
+          - qwen2.5-coder:7b
+          - codellama:7b
+
+env:
+  OLLAMA_HOST: http://localhost:11434
+
+jobs:
+  audit:
+    name: Semantic Audit
+    runs-on: ubuntu-latest
+    
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # Option 1: Use DockDesk GitHub Action (Recommended)
+      # -----------------------------------------------------------------------
+      - name: Run DockDesk Audit
+        uses: dockdesk/auditor@v2
+        with:
+          model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+          auto_tune: 'false'
+          fail_on_risk: 'HIGH'
+          output_format: 'md'
+          auto_fix: 'false'
+
+      # -----------------------------------------------------------------------
+      # Option 2: Use DockDesk CLI directly (Alternative)
+      # -----------------------------------------------------------------------
+      # Uncomment the following steps to run DockDesk via CLI instead of action
+      #
+      # - name: Setup Python
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: '3.11'
+      #
+      # - name: Wait for Ollama
+      #   run: |
+      #     for i in {1..30}; do
+      #       curl -s http://localhost:11434/api/tags && break
+      #       sleep 2
+      #     done
+      #
+      # - name: Pull Model
+      #   run: |
+      #     curl -X POST http://localhost:11434/api/pull \
+      #       -d '{"name": "qwen2.5-coder:3b"}'
+      #
+      # - name: Install DockDesk
+      #   run: pip install -r requirements.txt
+      #
+      # - name: Run Audit
+      #   run: python auditor_slm.py --ci --fail-on-risk HIGH
+
+      # -----------------------------------------------------------------------
+      # Upload audit report as artifact
+      # -----------------------------------------------------------------------
+      - name: Upload Audit Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-report
+          path: audit_report.md
+          retention-days: 30
+
+      # -----------------------------------------------------------------------
+      # Comment on PR with audit summary (optional)
+      # -----------------------------------------------------------------------
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## DockDesk Audit Results\n\n';
+            
+            try {
+              const report = fs.readFileSync('audit_report.md', 'utf8');
+              const lines = report.split('\n').slice(0, 30);
+              body += lines.join('\n');
+              body += '\n\n---\n';
+              body += '[View full report](' + 
+                'https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}' + 
+                ')';
+            } catch (e) {
+              body += 'Warning: Could not read audit report. Check the workflow logs for details.';
+            }
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      # -----------------------------------------------------------------------
+      # Upload SARIF for GitHub Code Scanning (optional)
+      # -----------------------------------------------------------------------
+      # Uncomment to enable GitHub Code Scanning integration
+      #
+      # - name: Run DockDesk with SARIF output
+      #   uses: dockdesk/auditor@v2
+      #   with:
+      #     model: qwen2.5-coder:3b
+      #     output_format: 'sarif'
+      #
+      # - name: Upload SARIF to GitHub
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: audit_report.sarif
+
+# =============================================================================
+# Configuration Guide
+# =============================================================================
+#
+# Model Selection by Codebase Size:
+#   - Small (<10k LOC):  qwen2.5-coder:1.5b or qwen2.5-coder:3b
+#   - Medium (10-50k):   qwen2.5-coder:7b or codellama:7b
+#   - Large (>50k):      qwen2.5-coder:14b
+#
+# Risk Thresholds:
+#   - HIGH:   Only fail on critical issues (default)
+#   - MEDIUM: Fail on moderate and critical issues
+#   - LOW:    Fail on any issue
+#
+# Auto-Fix Configuration:
+#   Set auto_fix: 'true' and add a commit step:
+#
+#   - name: Commit Fixes
+#     if: success()
+#     run: |
+#       git config user.name "DockDesk Bot"
+#       git config user.email "bot@dockdesk.dev"
+#       git add -A
+#       git diff --staged --quiet || git commit -m "docs: auto-fix from DockDesk"
+#       git push
+#
+# =============================================================================
