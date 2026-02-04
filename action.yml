@@ -48,27 +48,112 @@ inputs:
     description: 'Path to the workspace to audit (relative to repository root)'
     required: false
     default: '.'
+  
+  python_version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
 
 outputs:
   report_path:
     description: 'Path to the generated audit report'
+    value: ${{ steps.audit.outputs.report_path }}
   status:
     description: 'Audit status (pass/fail)'
+    value: ${{ steps.audit.outputs.status }}
   files_audited:
     description: 'Number of files audited'
+    value: ${{ steps.audit.outputs.files_audited }}
   high_risk_count:
     description: 'Number of HIGH risk findings'
+    value: ${{ steps.audit.outputs.high_risk_count }}
   fixes_applied:
     description: 'Number of fixes automatically applied'
+    value: ${{ steps.audit.outputs.fixes_applied }}
 
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  env:
-    MODEL_NAME: ${{ inputs.model }}
-    DOCKDESK_AUTO_TUNE: ${{ inputs.auto_tune }}
-    DOCKDESK_OLLAMA_HOST: ${{ inputs.ollama_host }}
-    DOCKDESK_FAIL_ON_RISK: ${{ inputs.fail_on_risk }}
-    DOCKDESK_OUTPUT_FORMAT: ${{ inputs.output_format }}
-    DOCKDESK_AUTO_FIX: ${{ inputs.auto_fix }}
-    DOCKDESK_WORKSPACE: ${{ inputs.workspace_path }}
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+    
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        echo "📦 Installing DockDesk dependencies..."
+        pip install --quiet -r ${{ github.action_path }}/requirements.txt
+    
+    - name: Wait for Ollama
+      shell: bash
+      env:
+        OLLAMA_HOST: ${{ inputs.ollama_host }}
+      run: |
+        echo "🔌 Connecting to Ollama at $OLLAMA_HOST..."
+        for i in {1..30}; do
+          if curl -s --connect-timeout 2 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; then
+            echo "✓ Ollama service ready"
+            exit 0
+          fi
+          echo "  Waiting... ($i/30)"
+          sleep 1
+        done
+        echo "::error::Ollama not reachable at $OLLAMA_HOST"
+        echo "::error::Add Ollama service to your workflow:"
+        echo "::error::  services:"
+        echo "::error::    ollama:"
+        echo "::error::      image: ollama/ollama:latest"
+        echo "::error::      ports:"
+        echo "::error::        - 11434:11434"
+        exit 1
+    
+    - name: Check/Pull Model
+      shell: bash
+      env:
+        OLLAMA_HOST: ${{ inputs.ollama_host }}
+        MODEL: ${{ inputs.model }}
+        AUTO_TUNE: ${{ inputs.auto_tune }}
+      run: |
+        if [ "$AUTO_TUNE" != "true" ]; then
+          echo "🧠 Checking model: $MODEL"
+          if ! curl -s "$OLLAMA_HOST/api/tags" | grep -q "$MODEL"; then
+            echo "Model not found, pulling (may take a minute)..."
+            curl -s -X POST "$OLLAMA_HOST/api/pull" \
+              -d "{\"name\": \"$MODEL\"}" \
+              -H "Content-Type: application/json" > /dev/null
+            sleep 5
+          fi
+          echo "✓ Model ready"
+        fi
+    
+    - name: Run DockDesk Audit
+      id: audit
+      shell: bash
+      env:
+        OLLAMA_HOST: ${{ inputs.ollama_host }}
+      run: |
+        echo "🔍 Starting Semantic Audit..."
+        
+        # Build CLI arguments
+        CLI_ARGS="--ci"
+        CLI_ARGS="$CLI_ARGS --workspace ${{ inputs.workspace_path }}"
+        CLI_ARGS="$CLI_ARGS --fail-on-risk ${{ inputs.fail_on_risk }}"
+        CLI_ARGS="$CLI_ARGS --format ${{ inputs.output_format }}"
+        
+        if [ "${{ inputs.auto_tune }}" == "true" ]; then
+          CLI_ARGS="$CLI_ARGS --auto-tune"
+        else
+          CLI_ARGS="$CLI_ARGS --model ${{ inputs.model }}"
+        fi
+        
+        if [ "${{ inputs.auto_fix }}" == "true" ]; then
+          CLI_ARGS="$CLI_ARGS --fix"
+        fi
+        
+        # Run the auditor
+        python ${{ github.action_path }}/auditor_slm.py $CLI_ARGS
+        
+        # Set outputs
+        echo "report_path=audit_report.md" >> $GITHUB_OUTPUT
+        echo "status=pass" >> $GITHUB_OUTPUT
