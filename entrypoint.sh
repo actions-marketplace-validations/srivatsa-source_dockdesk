@@ -8,36 +8,28 @@ set -e
 echo "🛡️ DockDesk Neural Auditor"
 echo "=========================="
 
-# Check if external Ollama is available (e.g., from a service container)
+# Use external Ollama service (GitHub Actions service container)
 OLLAMA_HOST=${DOCKDESK_OLLAMA_HOST:-"http://localhost:11434"}
-EXTERNAL_OLLAMA=false
+export OLLAMA_HOST
 
-echo "Checking for Ollama at $OLLAMA_HOST..."
-if curl -s --connect-timeout 5 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; then
-    echo "✓ External Ollama service detected at $OLLAMA_HOST"
-    EXTERNAL_OLLAMA=true
-    export OLLAMA_HOST
-else
-    # Start local Ollama in the background
-    echo "Starting local Ollama Server..."
-    ollama serve &
-    OLLAMA_PID=$!
-    
-    # Wait for Ollama to wake up
-    echo "Waiting for Ollama API..."
-    MAX_WAIT=60
-    WAITED=0
-    until curl -s http://localhost:11434/api/tags > /dev/null 2>&1; do
-        sleep 1
-        WAITED=$((WAITED + 1))
-        if [ $WAITED -ge $MAX_WAIT ]; then
-            echo "::error::Ollama failed to start within ${MAX_WAIT}s"
-            exit 1
-        fi
-    done
-    OLLAMA_HOST="http://localhost:11434"
-fi
-echo "✓ Ollama ready"
+echo "Connecting to Ollama at $OLLAMA_HOST..."
+MAX_WAIT=30
+WAITED=0
+until curl -s --connect-timeout 2 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; do
+    sleep 1
+    WAITED=$((WAITED + 1))
+    if [ $WAITED -ge $MAX_WAIT ]; then
+        echo "::error::Ollama service not reachable at $OLLAMA_HOST"
+        echo "::error::Ensure Ollama service container is running in your workflow:"
+        echo "::error::  services:"
+        echo "::error::    ollama:"
+        echo "::error::      image: ollama/ollama:latest"
+        echo "::error::      ports:"
+        echo "::error::        - 11434:11434"
+        exit 1
+    fi
+done
+echo "✓ Ollama service ready"
 
 # Configuration from environment
 MODEL=${MODEL_NAME:-"qwen2.5-coder:3b"}
@@ -91,14 +83,16 @@ else
         echo "Proceeding with '$MODEL' - results may vary."
     fi
     
-    # Pull model if needed
-    if ! ollama list | grep -q "$MODEL"; then
-        echo "Model $MODEL not found. Pulling..."
-        if ! ollama pull "$MODEL"; then
+    # Check if model exists, pull if needed via API
+    echo "Checking model availability..."
+    if ! curl -s "$OLLAMA_HOST/api/tags" | grep -q "$MODEL"; then
+        echo "Model $MODEL not found. Pulling (this may take a few minutes)..."
+        curl -X POST "$OLLAMA_HOST/api/pull" -d "{\"name\": \"$MODEL\"}" -H "Content-Type: application/json" --max-time 600 || {
             echo "::error::Failed to pull model '$MODEL'"
-            echo "Check model name or try: qwen2.5-coder:3b"
+            echo "Ensure model is pre-pulled in workflow or try: qwen2.5-coder:3b"
             exit 1
-        fi
+        }
+        echo "✓ Model pulled successfully"
     else
         echo "✓ Model $MODEL available"
     fi
@@ -128,10 +122,5 @@ echo ""
 cd /github/workspace
 python /app/auditor_slm.py $CLI_ARGS
 EXIT_CODE=$?
-
-# Cleanup
-if [ "$EXTERNAL_OLLAMA" = "false" ] && [ -n "$OLLAMA_PID" ]; then
-    kill $OLLAMA_PID 2>/dev/null || true
-fi
 
 exit $EXIT_CODE
