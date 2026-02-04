@@ -1,10 +1,10 @@
-# DockDesk v2.0
+# DockDesk v2.1
 
 **Local-First Semantic Documentation Auditor**
 
 Ensure your code and documentation never drift apart without sending a single byte to the cloud.
 
-[![GitHub Release](https://img.shields.io/github/v/release/v2.0?label=Release&color=green)](https://github.com/dockdesk/auditor)
+[![GitHub Action](https://img.shields.io/badge/GitHub%20Action-Ready-2088FF?logo=github-actions)](https://github.com/marketplace/actions/dockdesk-neural-auditor)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Powered By: Ollama](https://img.shields.io/badge/Neural%20Engine-Ollama-blue)](https://ollama.com)
 
@@ -47,14 +47,15 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ---
 
-## What's New in v2.0
+## What's New in v2.1
 
 | Feature | Description |
 |---------|-------------|
+| **⚡ Composite Action** | 10x faster GitHub Action - no Docker build (~30s vs ~4min) |
 | **Model Freedom** | Choose any Ollama model with LOC-based auto-tuning |
 | **One-Click Fixes** | Auto-apply documentation fixes with `--fix` |
 | **React Dashboard** | Visualize audit history, trends, and model usage |
-| **Enhanced GitHub Action** | Guided setup, risk gating, SARIF output |
+| **SARIF Output** | IDE integration for VS Code |
 | **Faster Audits** | Git diff scoping, parallel LLM calls, cached RAG |
 
 ---
@@ -63,90 +64,59 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ```mermaid
 flowchart TB
-    subgraph INPUT["Input Layer"]
-        COMMIT[Developer Commit]
-        CONFIG[Configuration]
-    end
-
-    subgraph DETECTION["Change Detection"]
-        GITDIFF[Git Diff Engine]
-        MERKLE[Merkle Tree Hash]
-        GITDIFF --> SCOPE{Scope Filter}
-        MERKLE --> SCOPE
-    end
-
-    subgraph PROCESSING["Processing Pipeline"]
+    subgraph GHA["GitHub Actions Runner"]
         direction TB
-        DISCOVER[Discovery Node]
-        RAG[RAG Retrieval]
-        AUDIT[LLM Audit Engine]
-        DISCOVER --> RAG
-        RAG --> AUDIT
-    end
-
-    subgraph MODELS["Model Layer"]
-        OLLAMA[(Ollama Runtime)]
-        QWEN[qwen2.5-coder]
-        CODELLAMA[codellama]
-        DEEPSEEK[deepseek-coder]
-        OLLAMA --- QWEN
-        OLLAMA --- CODELLAMA
-        OLLAMA --- DEEPSEEK
-    end
-
-    subgraph OUTPUT["Output Layer"]
-        RISK{Risk Assessment}
-        FIX[Fix Generator]
-        REPORT[Report Engine]
+        CHECKOUT["actions/checkout"]
+        PYTHON["actions/setup-python"]
+        OLLAMA_SVC["Ollama Service Container"]
         
-        RISK -->|HIGH| BLOCK[Block / Alert]
-        RISK -->|MEDIUM| WARN[Warning]
-        RISK -->|LOW| PASS[Pass]
-        
-        FIX --> BACKUP[Backup Manager]
-        REPORT --> MD[Markdown]
-        REPORT --> JSON[JSON]
-        REPORT --> SARIF[SARIF]
+        subgraph DOCKDESK["DockDesk Composite Action"]
+            DEPS["Install Dependencies"]
+            WAIT["Wait for Ollama"]
+            PULL["Pull Model"]
+            AUDIT["Run Audit"]
+            DEPS --> WAIT --> PULL --> AUDIT
+        end
     end
 
-    subgraph INTEGRATIONS["Integrations"]
-        GHA[GitHub Actions]
-        VSCODE[VS Code]
-        DASHBOARD[React Dashboard]
-        PRECOMMIT[Pre-Commit Hook]
+    subgraph CORE["DockDesk Core"]
+        DISCOVER["Discovery"]
+        RAG["RAG Engine"]
+        LLM["LLM Audit"]
+        FIXER["Fix Generator"]
+        DISCOVER --> RAG --> LLM --> FIXER
     end
 
-    COMMIT --> GITDIFF
-    CONFIG --> SCOPE
-    SCOPE -->|Changed Files| DISCOVER
-    AUDIT --> RISK
-    AUDIT --> FIX
-    AUDIT --> REPORT
-    OLLAMA --> AUDIT
+    subgraph OUTPUT["Output"]
+        REPORT["Report"]
+        MD["Markdown"]
+        JSON["JSON"]
+        SARIF["SARIF"]
+        REPORT --> MD & JSON & SARIF
+    end
 
-    SARIF --> VSCODE
-    MD --> GHA
-    REPORT --> DASHBOARD
-    BLOCK --> PRECOMMIT
+    CHECKOUT --> PYTHON --> DOCKDESK
+    OLLAMA_SVC <--> AUDIT
+    AUDIT --> DISCOVER
+    FIXER --> REPORT
 
-    style INPUT fill:#e1f5fe,stroke:#01579b
-    style DETECTION fill:#fff3e0,stroke:#e65100
-    style PROCESSING fill:#f3e5f5,stroke:#7b1fa2
-    style MODELS fill:#e8f5e9,stroke:#2e7d32
+    style GHA fill:#e1f5fe,stroke:#01579b
+    style DOCKDESK fill:#e8f5e9,stroke:#2e7d32
+    style CORE fill:#f3e5f5,stroke:#7b1fa2
     style OUTPUT fill:#fce4ec,stroke:#c2185b
-    style INTEGRATIONS fill:#f5f5f5,stroke:#616161
 ```
 
 ### Component Overview
 
-| Component | Description |
-|-----------|-------------|
-| **Discovery** | Scans workspace for code files and documentation |
-| **Integrity** | Git diff + Merkle tree for efficient change detection |
-| **RAG** | Retrieves relevant documentation context via ChromaDB |
-| **Audit** | LLM analyzes code vs docs with parallel workers |
-| **Fixer** | Generates and applies fixes with automatic backup |
-| **Reporting** | Outputs Markdown, JSON, or SARIF format |
+| Component | File | Description |
+|-----------|------|-------------|
+| **Action** | `action.yml` | Composite GitHub Action (no Docker) |
+| **Auditor** | `auditor_slm.py` | Main CLI entry point |
+| **Discovery** | `src/discovery.py` | Scans workspace for code and docs |
+| **RAG** | `src/rag.py` | Retrieves context via ChromaDB |
+| **Graph** | `src/graph.py` | LangGraph audit pipeline |
+| **Fixer** | `src/fixer.py` | Generates and applies fixes |
+| **Dashboard** | `dashboard/` | React visualization app |
 
 ---
 
@@ -168,8 +138,8 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen2.5-coder:3b
 
 # 3. Clone and install DockDesk
-git clone https://github.com/dockdesk/auditor.git
-cd auditor
+git clone https://github.com/srivatsa-source/dockdesk.git
+cd dockdesk
 pip install -r requirements.txt
 
 # 4. Run your first audit
@@ -263,6 +233,8 @@ python auditor_slm.py init
 
 ## GitHub Actions Integration
 
+> ⚡ **v2.1 uses a Composite Action** - No Docker build means ~30 second execution!
+
 ### Basic Setup
 
 ```yaml
@@ -272,17 +244,36 @@ on: [pull_request]
 jobs:
   audit:
     runs-on: ubuntu-latest
+    
+    # Required: Ollama service container
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      
+      # Pre-pull the model (recommended)
+      - name: Pull Model
+        run: |
+          curl -X POST http://localhost:11434/api/pull \
+            -d '{"name": "qwen2.5-coder:3b"}' \
+            -H "Content-Type: application/json"
+          sleep 15
       
       - name: Run DockDesk
-        uses: dockdesk/auditor@v2
+        uses: srivatsa-source/dockdesk@main
         with:
           model: qwen2.5-coder:3b
           fail_on_risk: HIGH
-          auto_fix: 'false'
+      
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-report
+          path: audit_report.md
 ```
 
 ### Action Inputs
@@ -292,11 +283,12 @@ jobs:
 | `model` | `qwen2.5-coder:3b` | Ollama model to use |
 | `auto_tune` | `false` | Auto-select model by LOC |
 | `fail_on_risk` | `HIGH` | Risk threshold for failure |
-| `output_format` | `md` | Output format |
+| `output_format` | `md` | Output format: `md`, `json`, `sarif` |
 | `auto_fix` | `false` | Auto-apply documentation fixes |
 | `ollama_host` | `http://localhost:11434` | Ollama server URL |
+| `python_version` | `3.11` | Python version to use |
 
-See [.github/workflows/dockdesk-example.yml](.github/workflows/dockdesk-example.yml) for advanced examples including SARIF upload and PR commenting.
+See [.github/workflows/dockdesk-example.yml](.github/workflows/dockdesk-example.yml) for advanced examples.
 
 ---
 
@@ -388,30 +380,46 @@ Configuration values are resolved in this order (highest to lowest priority):
 - [x] One-click documentation fixes
 - [x] React dashboard
 - [x] SARIF output for IDE integration
-- [x] Enhanced GitHub Action
+- [x] **Composite GitHub Action (v2.1)** - 10x faster!
 
 ### Planned
 
 - [ ] VS Code extension
 - [ ] Pre-commit hook package (npm/pip)
 - [ ] Multi-model voting and consensus
-- [ ] Embedding-based semantic change detection
 - [ ] JavaScript/TypeScript support
+- [ ] Publish to GitHub Marketplace under `dockdesk/auditor`
 
 ---
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome!
 
 ### Development Setup
 
 ```bash
-git clone https://github.com/dockdesk/auditor.git
-cd auditor
+git clone https://github.com/srivatsa-source/dockdesk.git
+cd dockdesk
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
+```
+
+### Project Structure
+
+```
+dockdesk/
+├── action.yml          # GitHub Composite Action
+├── auditor_slm.py      # Main CLI
+├── requirements.txt    # Python dependencies
+├── src/                # Core modules
+│   ├── discovery.py    # File discovery
+│   ├── graph.py        # LangGraph pipeline
+│   ├── rag.py          # RAG retrieval
+│   ├── fixer.py        # Fix generation
+│   └── ...
+└── dashboard/          # React dashboard
 ```
 
 ---

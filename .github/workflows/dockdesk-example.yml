@@ -1,9 +1,11 @@
 # =============================================================================
-# DockDesk Semantic Auditor - GitHub Actions Workflow
+# DockDesk Semantic Auditor - GitHub Actions Workflow (v2.1)
 # =============================================================================
 # This workflow runs DockDesk on every pull request to ensure documentation
 # stays in sync with code changes. Copy this file to your repository's
 # .github/workflows/ directory to enable automated semantic auditing.
+#
+# v2.1: Now uses Composite Action - ~30 second execution (no Docker build!)
 # =============================================================================
 
 name: DockDesk Audit
@@ -26,14 +28,12 @@ on:
           - qwen2.5-coder:7b
           - codellama:7b
 
-env:
-  OLLAMA_HOST: http://localhost:11434
-
 jobs:
   audit:
     name: Semantic Audit
     runs-on: ubuntu-latest
     
+    # Required: Ollama service container
     services:
       ollama:
         image: ollama/ollama:latest
@@ -43,47 +43,35 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # -----------------------------------------------------------------------
-      # Option 1: Use DockDesk CLI directly
-      # -----------------------------------------------------------------------
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Wait for Ollama
         run: |
+          echo "Waiting for Ollama service..."
           for i in {1..30}; do
-            curl -s http://localhost:11434/api/tags && break
-            sleep 2
+            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "Ollama ready!"
+              break
+            fi
+            sleep 1
           done
 
       - name: Pull Model
         run: |
+          echo "Pulling model..."
           curl -X POST http://localhost:11434/api/pull \
-            -d '{"name": "${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"}'
-
-      # Uncomment below to use CLI instead of action:
-      # - name: Install DockDesk
-      #   run: pip install -r requirements.txt
-      #
-      # - name: Run DockDesk Audit (CLI)
-      #   run: python auditor_slm.py --ci --fail-on-risk HIGH
+            -d '{"name": "${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"}' \
+            -H "Content-Type: application/json"
+          sleep 10
 
       # -----------------------------------------------------------------------
-      # Option 2: Use DockDesk GitHub Action (Recommended)
+      # Run DockDesk Composite Action (Recommended - Fast!)
       # -----------------------------------------------------------------------
-      - name: Run DockDesk Audit (Action)
-        uses: dockdesk/auditor@v2
+      - name: Run DockDesk Audit
+        uses: srivatsa-source/dockdesk@main
         with:
           model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
-          auto_tune: 'false'
           fail_on_risk: 'HIGH'
           output_format: 'md'
-          auto_fix: 'false'
 
       # -----------------------------------------------------------------------
       # Upload audit report as artifact
@@ -155,17 +143,5 @@ jobs:
 #   - HIGH:   Only fail on critical issues (default)
 #   - MEDIUM: Fail on moderate and critical issues
 #   - LOW:    Fail on any issue
-#
-# Auto-Fix Configuration:
-#   Set auto_fix: 'true' and add a commit step:
-#
-#   - name: Commit Fixes
-#     if: success()
-#     run: |
-#       git config user.name "DockDesk Bot"
-#       git config user.email "bot@dockdesk.dev"
-#       git add -A
-#       git diff --staged --quiet || git commit -m "docs: auto-fix from DockDesk"
-#       git push
 #
 # =============================================================================
