@@ -108,25 +108,6 @@ runs:
         echo "::error::        - 11434:11434"
         exit 1
     
-    - name: Check/Pull Model
-      shell: bash
-      env:
-        OLLAMA_HOST: ${{ inputs.ollama_host }}
-        MODEL: ${{ inputs.model }}
-        AUTO_TUNE: ${{ inputs.auto_tune }}
-      run: |
-        if [ "$AUTO_TUNE" != "true" ]; then
-          echo "🧠 Checking model: $MODEL"
-          if ! curl -s "$OLLAMA_HOST/api/tags" | grep -q "$MODEL"; then
-            echo "Model not found, pulling (may take a minute)..."
-            curl -s -X POST "$OLLAMA_HOST/api/pull" \
-              -d "{\"name\": \"$MODEL\"}" \
-              -H "Content-Type: application/json" > /dev/null
-            sleep 5
-          fi
-          echo "✓ Model ready"
-        fi
-    
     - name: Run DockDesk Audit
       id: audit
       shell: bash
