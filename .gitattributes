@@ -1,0 +1,15 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Force shell scripts to use LF (Unix line endings)
+*.sh text eol=lf
+
+# Force batch files to use CRLF (Windows line endings)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
