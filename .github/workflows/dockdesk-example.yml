@@ -47,44 +47,44 @@ jobs:
           fetch-depth: 0
 
       # -----------------------------------------------------------------------
-      # Option 1: Use DockDesk GitHub Action (Recommended)
+      # Option 1: Use DockDesk CLI directly
       # -----------------------------------------------------------------------
-      - name: Run DockDesk Audit
-        uses: dockdesk/auditor@v2
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
-          auto_tune: 'false'
-          fail_on_risk: 'HIGH'
-          output_format: 'md'
-          auto_fix: 'false'
+          python-version: '3.11'
+
+      - name: Wait for Ollama
+        run: |
+          for i in {1..30}; do
+            curl -s http://localhost:11434/api/tags && break
+            sleep 2
+          done
+
+      - name: Pull Model
+        run: |
+          curl -X POST http://localhost:11434/api/pull \
+            -d '{"name": "${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"}'
+
+      - name: Install DockDesk
+        run: pip install -r requirements.txt
+
+      - name: Run DockDesk Audit
+        run: python auditor_slm.py --ci --fail-on-risk HIGH
 
       # -----------------------------------------------------------------------
-      # Option 2: Use DockDesk CLI directly (Alternative)
+      # Option 2: Use DockDesk GitHub Action (when available)
       # -----------------------------------------------------------------------
-      # Uncomment the following steps to run DockDesk via CLI instead of action
+      # If the dockdesk/auditor action becomes available, uncomment below:
       #
-      # - name: Setup Python
-      #   uses: actions/setup-python@v5
+      # - name: Run DockDesk Audit
+      #   uses: dockdesk/auditor@v2
       #   with:
-      #     python-version: '3.11'
-      #
-      # - name: Wait for Ollama
-      #   run: |
-      #     for i in {1..30}; do
-      #       curl -s http://localhost:11434/api/tags && break
-      #       sleep 2
-      #     done
-      #
-      # - name: Pull Model
-      #   run: |
-      #     curl -X POST http://localhost:11434/api/pull \
-      #       -d '{"name": "qwen2.5-coder:3b"}'
-      #
-      # - name: Install DockDesk
-      #   run: pip install -r requirements.txt
-      #
-      # - name: Run Audit
-      #   run: python auditor_slm.py --ci --fail-on-risk HIGH
+      #     model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+      #     auto_tune: 'false'
+      #     fail_on_risk: 'HIGH'
+      #     output_format: 'md'
+      #     auto_fix: 'false'
 
       # -----------------------------------------------------------------------
       # Upload audit report as artifact
