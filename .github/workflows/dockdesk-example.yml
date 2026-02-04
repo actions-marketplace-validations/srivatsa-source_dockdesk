@@ -57,11 +57,21 @@ jobs:
 
       - name: Pull Model
         run: |
-          echo "Pulling model..."
+          echo "Pulling qwen2.5-coder:3b (2GB download, ~2 min)..."
           curl -X POST http://localhost:11434/api/pull \
             -d '{"name": "${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"}' \
-            -H "Content-Type: application/json"
-          sleep 10
+            -H "Content-Type: application/json" &
+          
+          # Wait for pull to complete
+          echo "Waiting for model download to complete..."
+          for i in {1..120}; do
+            if curl -s http://localhost:11434/api/tags | grep -q "qwen2.5-coder:3b"; then
+              echo "✓ Model ready!"
+              break
+            fi
+            echo "  Waiting... ($i/120)"
+            sleep 2
+          done
 
       # -----------------------------------------------------------------------
       # Run DockDesk Composite Action (Recommended - Fast!)
