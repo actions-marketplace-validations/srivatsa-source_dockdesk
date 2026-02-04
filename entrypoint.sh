@@ -8,23 +8,35 @@ set -e
 echo "🛡️ DockDesk Neural Auditor"
 echo "=========================="
 
-# Start Ollama in the background
-echo "Starting Ollama Server..."
-ollama serve &
-OLLAMA_PID=$!
+# Check if external Ollama is available (e.g., from a service container)
+OLLAMA_HOST=${DOCKDESK_OLLAMA_HOST:-"http://localhost:11434"}
+EXTERNAL_OLLAMA=false
 
-# Wait for Ollama to wake up
-echo "Waiting for Ollama API..."
-MAX_WAIT=60
-WAITED=0
-until curl -s http://localhost:11434/api/tags > /dev/null 2>&1; do
-    sleep 1
-    WAITED=$((WAITED + 1))
-    if [ $WAITED -ge $MAX_WAIT ]; then
-        echo "::error::Ollama failed to start within ${MAX_WAIT}s"
-        exit 1
-    fi
-done
+echo "Checking for Ollama at $OLLAMA_HOST..."
+if curl -s --connect-timeout 5 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; then
+    echo "✓ External Ollama service detected at $OLLAMA_HOST"
+    EXTERNAL_OLLAMA=true
+    export OLLAMA_HOST
+else
+    # Start local Ollama in the background
+    echo "Starting local Ollama Server..."
+    ollama serve &
+    OLLAMA_PID=$!
+    
+    # Wait for Ollama to wake up
+    echo "Waiting for Ollama API..."
+    MAX_WAIT=60
+    WAITED=0
+    until curl -s http://localhost:11434/api/tags > /dev/null 2>&1; do
+        sleep 1
+        WAITED=$((WAITED + 1))
+        if [ $WAITED -ge $MAX_WAIT ]; then
+            echo "::error::Ollama failed to start within ${MAX_WAIT}s"
+            exit 1
+        fi
+    done
+    OLLAMA_HOST="http://localhost:11434"
+fi
 echo "✓ Ollama ready"
 
 # Configuration from environment
@@ -118,6 +130,8 @@ python /app/auditor_slm.py $CLI_ARGS
 EXIT_CODE=$?
 
 # Cleanup
-kill $OLLAMA_PID 2>/dev/null || true
+if [ "$EXTERNAL_OLLAMA" = "false" ] && [ -n "$OLLAMA_PID" ]; then
+    kill $OLLAMA_PID 2>/dev/null || true
+fi
 
 exit $EXIT_CODE

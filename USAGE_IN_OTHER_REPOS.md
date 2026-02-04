@@ -77,7 +77,7 @@ jobs:
           sleep 10
       
       - name: Run DockDesk Audit
-        uses: srivatsa-source/dockdesk@main
+        uses: dockdesk/auditor@v2
         with:
           model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
           auto_tune: 'false'
@@ -145,8 +145,8 @@ docker run -v $(pwd):/workspace dockdesk
 ## Troubleshooting
 
 ### Action not found
-- Ensure the repo is public OR add a GitHub token for private repos
-- Verify you pushed the latest changes to GitHub
+- The action is published at: https://github.com/marketplace/actions/dockdesk-neural-auditor
+- Use: `dockdesk/auditor@v2`
 
 ### Ollama service timeout
 - Increase wait time in the "Wait for Ollama Service" step
