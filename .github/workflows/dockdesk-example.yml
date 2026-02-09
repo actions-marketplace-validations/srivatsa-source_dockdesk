@@ -33,45 +33,52 @@ jobs:
     name: Semantic Audit
     runs-on: ubuntu-latest
     
-    # Required: Ollama service container
-    services:
-      ollama:
-        image: ollama/ollama:latest
-        ports:
-          - 11434:11434
-    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Wait for Ollama
+      - name: Start Ollama Container
         run: |
-          echo "Waiting for Ollama service..."
+          echo "Starting Ollama as detached container..."
+          docker run -d -p 11434:11434 --name ollama ollama/ollama:latest
+          echo "Ollama container started"
+
+      - name: Wait for Ollama to be Ready
+        run: |
+          echo "Waiting for Ollama to be ready..."
           for i in {1..30}; do
-            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-              echo "Ollama ready!"
+            if curl -s --connect-timeout 2 http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "✓ Ollama is ready!"
               break
             fi
+            echo "  Waiting... ($i/30)"
             sleep 1
           done
+          
+          # Verify Ollama is responsive
+          if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+            echo "❌ Ollama failed to start"
+            exit 1
+          fi
 
       - name: Pull Model
         run: |
-          echo "Pulling qwen2.5-coder:3b (2GB download, ~2 min)..."
-          curl -X POST http://localhost:11434/api/pull \
-            -d '{"name": "${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"}' \
-            -H "Content-Type: application/json" &
+          MODEL="${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"
+          echo "Pulling $MODEL (2GB download, ~2 min)..."
           
-          # Wait for pull to complete
-          echo "Waiting for model download to complete..."
-          for i in {1..120}; do
-            if curl -s http://localhost:11434/api/tags | grep -q "qwen2.5-coder:3b"; then
-              echo "✓ Model ready!"
-              break
-            fi
-            echo "  Waiting... ($i/120)"
-            sleep 2
-          done
+          # Use stream:false to wait for completion synchronously
+          curl -X POST http://localhost:11434/api/pull \
+            -d '{"name": "'"$MODEL"'", "stream": false}' \
+            -H "Content-Type: application/json"
+          
+          # Verify model is available
+          echo "Verifying model availability..."
+          if curl -s http://localhost:11434/api/tags | grep -q "$MODEL"; then
+            echo "✓ Model $MODEL is ready!"
+          else
+            echo "❌ Model pull failed"
+            exit 1
+          fi
 
       # -----------------------------------------------------------------------
       # Run DockDesk Composite Action (Recommended - Fast!)
@@ -82,6 +89,15 @@ jobs:
           model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
           fail_on_risk: 'HIGH'
           output_format: 'md'
+          ollama_host: 'http://localhost:11434'
+
+      - name: Cleanup Ollama Container
+        if: always()
+        run: |
+          echo "Stopping and removing Ollama container..."
+          docker stop ollama || true
+          docker rm ollama || true
+          echo "✓ Cleanup complete"
 
       # -----------------------------------------------------------------------
       # Upload audit report as artifact
