@@ -49,6 +49,11 @@ inputs:
     required: false
     default: '.'
   
+  skip_rag:
+    description: 'Skip RAG retrieval for faster audits and reduced disk usage (recommended for CI)'
+    required: false
+    default: 'false'
+  
   python_version:
     description: 'Python version to use'
     required: false
@@ -82,31 +87,58 @@ runs:
     - name: Install Dependencies
       shell: bash
       run: |
-        echo "📦 Installing DockDesk dependencies..."
+        echo "📦 Installing DockDesk core dependencies..."
         pip install --quiet -r ${{ github.action_path }}/requirements.txt
+        
+        if [ "${{ inputs.skip_rag }}" != "true" ]; then
+          echo "📦 Installing RAG dependencies (chromadb, sentence-transformers)..."
+          pip install --quiet -r ${{ github.action_path }}/requirements-rag.txt
+        else
+          echo "⏭️  Skipping RAG dependencies (skip_rag=true)"
+        fi
     
     - name: Wait for Ollama
       shell: bash
       env:
         OLLAMA_HOST: ${{ inputs.ollama_host }}
+        MODEL_NAME: ${{ inputs.model }}
       run: |
         echo "🔌 Connecting to Ollama at $OLLAMA_HOST..."
+        CONNECTED=false
         for i in {1..30}; do
           if curl -s --connect-timeout 2 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; then
             echo "✓ Ollama service ready"
-            exit 0
+            CONNECTED=true
+            break
           fi
           echo "  Waiting... ($i/30)"
           sleep 1
         done
-        echo "::error::Ollama not reachable at $OLLAMA_HOST"
-        echo "::error::Add Ollama service to your workflow:"
-        echo "::error::  services:"
-        echo "::error::    ollama:"
-        echo "::error::      image: ollama/ollama:latest"
-        echo "::error::      ports:"
-        echo "::error::        - 11434:11434"
-        exit 1
+        
+        if [ "$CONNECTED" != "true" ]; then
+          echo "::error::Ollama not reachable at $OLLAMA_HOST"
+          echo "::error::Ensure Ollama is running on your self-hosted runner:"
+          echo "::error::  1. Install:  curl -fsSL https://ollama.com/install.sh | sh"
+          echo "::error::  2. Start:    ollama serve  (or: sudo systemctl start ollama)"
+          echo "::error::  3. Pull:     ollama pull $MODEL_NAME"
+          exit 1
+        fi
+        
+        # Verify the requested model is pre-installed
+        if [ "$MODEL_NAME" != "auto" ]; then
+          echo "🔎 Checking if model '$MODEL_NAME' is available..."
+          if curl -s "$OLLAMA_HOST/api/tags" | grep -q "$MODEL_NAME"; then
+            echo "✓ Model '$MODEL_NAME' is available"
+          else
+            echo "::error::Model '$MODEL_NAME' not found on Ollama at $OLLAMA_HOST"
+            echo "::error::Pre-install the model on your runner before running the workflow:"
+            echo "::error::  ollama pull $MODEL_NAME"
+            echo ""
+            echo "Available models:"
+            curl -s "$OLLAMA_HOST/api/tags" | python3 -c "import sys,json; [print(f'  - {m[\"name\"]}') for m in json.load(sys.stdin).get('models',[])]" 2>/dev/null || true
+            exit 1
+          fi
+        fi
     
     - name: Run DockDesk Audit
       id: audit
@@ -130,6 +162,10 @@ runs:
         
         if [ "${{ inputs.auto_fix }}" == "true" ]; then
           CLI_ARGS="$CLI_ARGS --fix"
+        fi
+        
+        if [ "${{ inputs.skip_rag }}" == "true" ]; then
+          CLI_ARGS="$CLI_ARGS --skip-rag"
         fi
         
         # Run the auditor

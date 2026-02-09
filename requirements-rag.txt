@@ -1,0 +1,13 @@
+# =============================================================================
+# DockDesk RAG Dependencies (optional)
+# =============================================================================
+# These are only needed when RAG retrieval is enabled (default).
+# Skip with: --skip-rag flag or skip_rag: 'true' in GitHub Actions.
+#
+# WARNING: sentence-transformers pulls in torch (~800MB).
+# In CI, use skip_rag: 'true' to avoid disk pressure on hosted runners.
+# =============================================================================
+
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+langchain-huggingface
