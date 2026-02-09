@@ -1,18 +1,13 @@
 # =============================================================================
-# DockDesk Semantic Auditor - GitHub Actions Workflow (v3.0)
+# DockDesk Semantic Auditor - GitHub Actions Workflow (v3.1)
 # =============================================================================
 # This workflow runs DockDesk on every pull request to ensure documentation
 # stays in sync with code changes. Copy this file to your repository's
 # .github/workflows/ directory to enable automated semantic auditing.
 #
-# v3.0: Self-hosted runner with pre-installed Ollama. No model downloads in CI.
-#       RAG disabled by default in CI to reduce disk usage.
-#       Audit history persisted as artifact for dashboard consumption.
-#
-# Prerequisites (on your self-hosted runner):
-#   1. Install Ollama:  curl -fsSL https://ollama.com/install.sh | sh
-#   2. Start Ollama:    ollama serve  (or systemctl enable ollama)
-#   3. Pull model:      ollama pull qwen2.5-coder:3b
+# v3.1: Runs on ubuntu-latest with native Ollama install (no Docker).
+#       Free disk space first, install Ollama via curl, pull model, audit.
+#       RAG disabled by default to reduce disk usage (~800MB torch saved).
 # =============================================================================
 
 name: DockDesk Audit
@@ -25,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: 'Ollama model to use (must be pre-installed on runner)'
+        description: 'Ollama model to use'
         required: false
         default: 'qwen2.5-coder:3b'
         type: choice
@@ -43,14 +38,34 @@ on:
 jobs:
   audit:
     name: Semantic Audit
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------------
-      # Run DockDesk Audit (Ollama must be pre-installed on runner)
+      # Free disk space & install Ollama natively (no Docker needed)
+      # -----------------------------------------------------------------------
+      - name: Free Disk Space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+
+      - name: Install & Start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          
+          # Wait for Ollama to be ready
+          for i in {1..15}; do
+            curl -s http://localhost:11434/api/tags > /dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Pull Model
+        run: ollama pull ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+
+      # -----------------------------------------------------------------------
+      # Run DockDesk Audit
       # -----------------------------------------------------------------------
       - name: Run DockDesk Audit
         id: dockdesk
@@ -159,11 +174,11 @@ jobs:
 # Configuration Guide
 # =============================================================================
 #
-# Self-Hosted Runner Setup:
-#   1. Install Ollama:  curl -fsSL https://ollama.com/install.sh | sh
-#   2. Start service:   sudo systemctl enable ollama && sudo systemctl start ollama
-#   3. Pull model:      ollama pull qwen2.5-coder:3b
-#   4. Register runner:  https://docs.github.com/en/actions/hosting-your-own-runners
+# No setup required! The workflow automatically:
+#   1. Frees ~6GB disk space on the runner
+#   2. Installs Ollama natively (no Docker)
+#   3. Pulls the selected model
+#   4. Runs the audit with RAG disabled (saves ~800MB)
 #
 # Model Selection by Codebase Size:
 #   - Small (<10k LOC):  qwen2.5-coder:1.5b or qwen2.5-coder:3b
