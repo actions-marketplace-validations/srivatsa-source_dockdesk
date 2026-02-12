@@ -45,6 +45,10 @@ class DockDeskConfig:
     # Core settings
     workspace: str = "."
     model: str = "qwen2.5-coder:3b"
+    detect_model: str = ""   # Phase 1 detection model (empty = use 'model') [DEPRECATED: use reasoning_model]
+    fix_model: str = ""      # Phase 2 fix-generation model (empty = use 'model') [DEPRECATED: use reasoning_model]
+    reasoning_model: str = ""  # Logical reasoning model — DeepSeek-R1 (empty = use default)
+    discord_webhook: str = ""  # Discord webhook URL for audit notifications
     ollama_host: str = "http://localhost:11434"
     temperature: float = 0.1
     
@@ -61,8 +65,9 @@ class DockDeskConfig:
     
     # Guardrails
     fail_on_risk: RiskLevel = RiskLevel.HIGH
-    max_files: int = 100  # Limit files per audit
+    max_files: int = 0  # 0 = no limit (was 100 but never enforced; now wired)
     timeout_per_file: int = 120  # Seconds
+    max_file_size: int = 512000  # 500 KB — skip binaries/lockfiles
     
     # Dashboard
     enable_changelog: bool = True
@@ -72,10 +77,24 @@ class DockDeskConfig:
     skip_rag: bool = False
     force_full_scan: bool = False
     
+    # Scaling (monorepo)
+    include_patterns: str = ""   # Comma-separated globs, e.g. "src/**,lib/**"
+    exclude_patterns: str = ""   # Comma-separated globs, e.g. "generated/**,vendor/**"
+    workers: int = 0             # 0 = auto-detect from pool size
+    fast_mode: bool = False      # Skip reasoning for LOW-risk findings
+    clear_cache: bool = False    # Wipe cache before run
+    batch_size: int = 5          # Files per batched LLM call (code analysis)
+    ollama_urls: str = ""        # Comma-separated Ollama endpoints
+    respect_gitignore: bool = True
+    
     def to_dict(self) -> Dict[str, Any]:
         return {
             "workspace": self.workspace,
             "model": self.model,
+            "detect_model": self.detect_model,
+            "fix_model": self.fix_model,
+            "reasoning_model": self.reasoning_model,
+            "discord_webhook": self.discord_webhook,
             "ollama_host": self.ollama_host,
             "temperature": self.temperature,
             "auto_tune": self.auto_tune,
@@ -88,11 +107,32 @@ class DockDeskConfig:
             "fail_on_risk": self.fail_on_risk.value,
             "max_files": self.max_files,
             "timeout_per_file": self.timeout_per_file,
+            "max_file_size": self.max_file_size,
             "enable_changelog": self.enable_changelog,
             "changelog_file": self.changelog_file,
             "skip_rag": self.skip_rag,
             "force_full_scan": self.force_full_scan,
+            "include_patterns": self.include_patterns,
+            "exclude_patterns": self.exclude_patterns,
+            "workers": self.workers,
+            "fast_mode": self.fast_mode,
+            "clear_cache": self.clear_cache,
+            "batch_size": self.batch_size,
+            "ollama_urls": self.ollama_urls,
+            "respect_gitignore": self.respect_gitignore,
         }
+
+    def get_include_list(self) -> List[str]:
+        """Parse comma-separated include patterns."""
+        return [p.strip() for p in self.include_patterns.split(',') if p.strip()] if self.include_patterns else []
+
+    def get_exclude_list(self) -> List[str]:
+        """Parse comma-separated exclude patterns."""
+        return [p.strip() for p in self.exclude_patterns.split(',') if p.strip()] if self.exclude_patterns else []
+
+    def get_ollama_url_list(self) -> List[str]:
+        """Parse comma-separated Ollama URLs."""
+        return [u.strip() for u in self.ollama_urls.split(',') if u.strip()] if self.ollama_urls else []
 
 
 def load_config_file(workspace: str) -> Dict[str, Any]:
@@ -151,6 +191,10 @@ def load_env_config() -> Dict[str, Any]:
     """Load configuration from environment variables."""
     env_map = {
         "DOCKDESK_MODEL": "model",
+        "DOCKDESK_DETECT_MODEL": "detect_model",
+        "DOCKDESK_FIX_MODEL": "fix_model",
+        "DOCKDESK_REASONING_MODEL": "reasoning_model",
+        "DOCKDESK_DISCORD_WEBHOOK": "discord_webhook",
         "DOCKDESK_OLLAMA_HOST": "ollama_host",
         "DOCKDESK_OUTPUT_FORMAT": "output_format",
         "DOCKDESK_FAIL_ON_RISK": "fail_on_risk",
@@ -238,6 +282,10 @@ def create_sample_config(workspace: str, format: str = "yaml") -> str:
 model: qwen2.5-coder:3b  # Use --list-models to see options
 ollama_host: http://localhost:11434
 temperature: 0.1
+
+# Dual-Model Pipeline (optional — leave empty to use 'model' for both)
+# detect_model: deepseek-r1:1.5b    # Fast reasoning model for Phase 1 detection
+# fix_model: qwen2.5-coder:3b       # Code-capable model for Phase 2 fix generation
 
 # Behavior
 auto_tune: false      # Auto-select model based on codebase size

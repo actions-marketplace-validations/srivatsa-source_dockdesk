@@ -8,7 +8,7 @@ branding:
 inputs:
   model:
     description: |
-      LLM Model to use. Must be available in Ollama library.
+      Default LLM model (used for both detection and fix if dedicated models are not set).
       Recommended audit-suitable models:
         - qwen2.5-coder:1.5b (fastest, <5k LOC)
         - qwen2.5-coder:3b (default, <10k LOC)
@@ -18,6 +18,35 @@ inputs:
       Use 'auto' for automatic selection based on codebase size.
     required: false
     default: 'qwen2.5-coder:3b'
+  
+  detect_model:
+    description: |
+      [DEPRECATED] Use reasoning_model instead.
+      Model for Phase 1 (detection / risk assessment).
+    required: false
+    default: ''
+  
+  fix_model:
+    description: |
+      [DEPRECATED] Use reasoning_model instead.
+      Model for Phase 2 (fix generation).
+    required: false
+    default: ''
+  
+  reasoning_model:
+    description: |
+      DeepSeek-R1 reasoning model for logical risk assessment and safety judgement.
+      Default: deepseek-r1-distill-qwen:1.5b
+      This model acts as the "brain" — it judges risk, validates fixes, and decides push safety.
+    required: false
+    default: 'deepseek-r1:1.5b'
+  
+  discord_webhook:
+    description: |
+      Discord webhook URL for posting audit summaries and push-guard notifications.
+      Leave empty to disable Discord notifications.
+    required: false
+    default: ''
   
   auto_tune:
     description: 'Automatically select the best model based on codebase LOC (overrides model input)'
@@ -87,14 +116,15 @@ runs:
     - name: Install Dependencies
       shell: bash
       run: |
-        echo "📦 Installing DockDesk core dependencies..."
+        echo "[*] Installing DockDesk as package..."
         pip install --quiet -r ${{ github.action_path }}/requirements.txt
+        pip install --quiet -e ${{ github.action_path }}
         
         if [ "${{ inputs.skip_rag }}" != "true" ]; then
-          echo "📦 Installing RAG dependencies (chromadb, sentence-transformers)..."
+          echo "[*] Installing RAG dependencies (chromadb, sentence-transformers)..."
           pip install --quiet -r ${{ github.action_path }}/requirements-rag.txt
         else
-          echo "⏭️  Skipping RAG dependencies (skip_rag=true)"
+          echo "[>] Skipping RAG dependencies (skip_rag=true)"
         fi
     
     - name: Wait for Ollama
@@ -102,12 +132,15 @@ runs:
       env:
         OLLAMA_HOST: ${{ inputs.ollama_host }}
         MODEL_NAME: ${{ inputs.model }}
+        DETECT_MODEL: ${{ inputs.detect_model }}
+        FIX_MODEL: ${{ inputs.fix_model }}
+        REASONING_MODEL: ${{ inputs.reasoning_model }}
       run: |
-        echo "🔌 Connecting to Ollama at $OLLAMA_HOST..."
+        echo "[*] Connecting to Ollama at $OLLAMA_HOST..."
         CONNECTED=false
         for i in {1..30}; do
           if curl -s --connect-timeout 2 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; then
-            echo "✓ Ollama service ready"
+            echo "[+] Ollama service ready"
             CONNECTED=true
             break
           fi
@@ -124,21 +157,27 @@ runs:
           exit 1
         fi
         
-        # Verify the requested model is pre-installed
-        if [ "$MODEL_NAME" != "auto" ]; then
-          echo "🔎 Checking if model '$MODEL_NAME' is available..."
-          if curl -s "$OLLAMA_HOST/api/tags" | grep -q "$MODEL_NAME"; then
-            echo "✓ Model '$MODEL_NAME' is available"
-          else
-            echo "::error::Model '$MODEL_NAME' not found on Ollama at $OLLAMA_HOST"
-            echo "::error::Pre-install the model on your runner before running the workflow:"
-            echo "::error::  ollama pull $MODEL_NAME"
-            echo ""
-            echo "Available models:"
-            curl -s "$OLLAMA_HOST/api/tags" | python3 -c "import sys,json; [print(f'  - {m[\"name\"]}') for m in json.load(sys.stdin).get('models',[])]" 2>/dev/null || true
-            exit 1
+        # Verify all required models are available
+        check_model() {
+          local name="$1"
+          local role="$2"
+          if [ -n "$name" ] && [ "$name" != "auto" ]; then
+            echo "[?] Checking $role model '$name'..."
+            if curl -s "$OLLAMA_HOST/api/tags" | grep -q "$name"; then
+              echo "[+] $role model '$name' is available"
+            else
+              echo "::error::$role model '$name' not found on Ollama at $OLLAMA_HOST"
+              echo "::error::Pre-install: ollama pull $name"
+              curl -s "$OLLAMA_HOST/api/tags" | python3 -c "import sys,json; [print(f'  - {m[\"name\"]}') for m in json.load(sys.stdin).get('models',[])]" 2>/dev/null || true
+              exit 1
+            fi
           fi
-        fi
+        }
+        
+        check_model "$MODEL_NAME" "default"
+        check_model "$DETECT_MODEL" "detect"
+        check_model "$FIX_MODEL" "fix"
+        check_model "$REASONING_MODEL" "reasoning"
     
     - name: Run DockDesk Audit
       id: audit
@@ -146,7 +185,7 @@ runs:
       env:
         OLLAMA_HOST: ${{ inputs.ollama_host }}
       run: |
-        echo "🔍 Starting Semantic Audit..."
+        echo "[*] Starting Semantic Audit..."
         
         # Build CLI arguments
         CLI_ARGS="--ci"
@@ -160,6 +199,22 @@ runs:
           CLI_ARGS="$CLI_ARGS --model ${{ inputs.model }}"
         fi
         
+        if [ -n "${{ inputs.detect_model }}" ]; then
+          CLI_ARGS="$CLI_ARGS --detect-model ${{ inputs.detect_model }}"
+        fi
+        
+        if [ -n "${{ inputs.fix_model }}" ]; then
+          CLI_ARGS="$CLI_ARGS --fix-model ${{ inputs.fix_model }}"
+        fi
+        
+        if [ -n "${{ inputs.reasoning_model }}" ]; then
+          CLI_ARGS="$CLI_ARGS --reasoning-model ${{ inputs.reasoning_model }}"
+        fi
+        
+        if [ -n "${{ inputs.discord_webhook }}" ]; then
+          CLI_ARGS="$CLI_ARGS --discord-webhook ${{ inputs.discord_webhook }}"
+        fi
+        
         if [ "${{ inputs.auto_fix }}" == "true" ]; then
           CLI_ARGS="$CLI_ARGS --fix"
         fi
@@ -171,6 +226,58 @@ runs:
         # Run the auditor
         python ${{ github.action_path }}/auditor_slm.py $CLI_ARGS
         
-        # Set outputs
-        echo "report_path=audit_report.md" >> $GITHUB_OUTPUT
+        # Parse results for outputs — files now land in workspace dir
+        WS="${{ inputs.workspace_path }}"
+        if [ -f "${WS}/audit_report.md" ]; then
+          echo "report_path=${WS}/audit_report.md" >> $GITHUB_OUTPUT
+        fi
+        
+        # Extract metrics from dashboard_data.json if it exists
+        if [ -f "${WS}/dashboard_data.json" ]; then
+          FILES=$(python3 -c "import json; d=json.load(open('${WS}/dashboard_data.json')); print(len(d.get('latest_run_files',[])))" 2>/dev/null || echo "0")
+          HIGH=$(python3 -c "import json; d=json.load(open('${WS}/dashboard_data.json')); print(d.get('stats',{}).get('risk_totals',{}).get('HIGH',0))" 2>/dev/null || echo "0")
+          echo "files_audited=$FILES" >> $GITHUB_OUTPUT
+          echo "high_risk_count=$HIGH" >> $GITHUB_OUTPUT
+        fi
+        
         echo "status=pass" >> $GITHUB_OUTPUT
+        echo "fixes_applied=0" >> $GITHUB_OUTPUT
+
+    - name: Upload Audit Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dockdesk-audit
+        path: |
+          ${{ inputs.workspace_path }}/audit_report.md
+          ${{ inputs.workspace_path }}/dashboard_data.json
+          ${{ inputs.workspace_path }}/audit_history.jsonl
+        retention-days: 30
+
+    - name: Post PR Comment
+      if: github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let body = '## 🛡️ DockDesk Audit Results\n\n';
+          
+          try {
+            const report = fs.readFileSync('audit_report.md', 'utf8');
+            // Extract summary section only (first ~30 lines)
+            const lines = report.split('\n');
+            const summaryEnd = lines.findIndex((l, i) => i > 5 && l.startsWith('## File Results'));
+            const summary = lines.slice(0, summaryEnd > 0 ? summaryEnd : 30).join('\n');
+            body += summary;
+          } catch {
+            body += '_Audit report not found._\n';
+          }
+          
+          body += '\n\n---\n_Generated by DockDesk Dual-Model Auditor_';
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body
+          });

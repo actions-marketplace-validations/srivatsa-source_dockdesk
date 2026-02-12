@@ -1,11 +1,12 @@
 # =============================================================================
-# DockDesk Semantic Auditor - GitHub Actions Workflow (v3.2)
+# DockDesk Semantic Auditor - GitHub Actions Workflow (v4.0)
 # =============================================================================
 # This workflow runs DockDesk on every pull request to ensure documentation
 # stays in sync with code changes. Copy this file to your repository's
 # .github/workflows/ directory to enable automated semantic auditing.
 #
-# v3.2: Fixed git diff in CI (fetch-depth + base branch fetch).
+# v4.0: Dual-model pipeline (detect + fix).
+#       Fixed git diff: two-dot diff + GITHUB_BASE_REF + full base fetch.
 #       Only changed files are audited — no more 20+ minute Merkle scans.
 # =============================================================================
 
@@ -47,7 +48,7 @@ jobs:
 
       - name: Fetch Base Branch
         if: github.event_name == 'pull_request'
-        run: git fetch origin ${{ github.base_ref }} --depth=1
+        run: git fetch origin ${{ github.base_ref }}
 
       # -----------------------------------------------------------------------
       # Free disk space & install Ollama natively (no Docker needed)
@@ -66,8 +67,18 @@ jobs:
             sleep 1
           done
 
-      - name: Pull Model
-        run: ollama pull ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+      - name: Pull Model(s)
+        run: |
+          # Pull the default / fix model
+          ollama pull ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+          
+          # If a separate detect model is configured, pull it too
+          DETECT_MODEL="deepseek-r1:1.5b"
+          DEFAULT_MODEL="${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"
+          if [ -n "$DETECT_MODEL" ] && [ "$DETECT_MODEL" != "$DEFAULT_MODEL" ]; then
+            echo "Pulling detect model: $DETECT_MODEL"
+            ollama pull "$DETECT_MODEL"
+          fi
 
       # -----------------------------------------------------------------------
       # Run DockDesk Audit
@@ -77,6 +88,8 @@ jobs:
         uses: srivatsa-source/dockdesk@main
         with:
           model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+          detect_model: 'deepseek-r1:1.5b'
+          fix_model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
           ollama_host: ${{ github.event.inputs.ollama_host || 'http://localhost:11434' }}
           fail_on_risk: 'HIGH'
           output_format: 'md'

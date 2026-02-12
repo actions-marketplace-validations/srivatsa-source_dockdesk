@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist/
+build/
+.eggs/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# Node (dashboard)
+dashboard/node_modules/
+dashboard/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# DockDesk output (should be generated fresh)
+audit_report.md
+audit_history.jsonl
+dashboard_data.json
+merkle_snapshot.json
+.dockdesk_cache.db
+.dockdesk_cache/
+
+# GitHub
+.github/
+
+# Docs
+*.md
+!README.md

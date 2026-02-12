@@ -3,10 +3,75 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  background-color: #000000;
+  color: #d4d4d4;
+}
+
+/* CRT scanline overlay */
+#root::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.015) 2px,
+    rgba(255, 255, 255, 0.015) 4px
+  );
+}
+
+/* Subtle CRT glow */
+#root {
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #000;
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Retro blinking cursor for loading */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Mono table styles */
+table {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Retro card glow on hover */
+.retro-card {
+  transition: border-color 0.2s ease;
+}
+.retro-card:hover {
+  border-color: #555 !important;
 }

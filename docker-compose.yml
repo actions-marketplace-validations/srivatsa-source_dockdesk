@@ -1,0 +1,43 @@
+# ───────────────────────────────────────────────────────────
+# DockDesk + Ollama - Full Stack
+# ───────────────────────────────────────────────────────────
+# Usage:
+#   1. Place this file in your target repo (or any directory)
+#   2. docker compose up ollama          # Start Ollama first
+#   3. docker compose exec ollama ollama pull qwen2.5-coder:3b
+#   4. docker compose exec ollama ollama pull deepseek-r1:1.5b
+#   5. docker compose run dockdesk       # Run the audit
+#
+# Or one-shot after models are pulled:
+#   docker compose run dockdesk audit . --auto-tune
+# ───────────────────────────────────────────────────────────
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment for NVIDIA GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  dockdesk:
+    build: .
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - .:/workspace:ro    # Mount current dir as read-only target
+    depends_on:
+      - ollama
+    # Override default command as needed:
+    # command: ["audit", ".", "--auto-tune", "--verbose"]
+
+volumes:
+  ollama_data:

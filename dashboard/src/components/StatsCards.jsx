@@ -1,58 +1,45 @@
-import { FileText, Zap, CheckCircle, Clock } from 'lucide-react'
-
 export default function StatsCards({ stats }) {
+  if (!stats) return null
+  
   const cards = [
     {
-      title: 'Total Audits',
-      value: stats.total_audits,
-      icon: FileText,
-      color: 'blue',
-      description: 'Audit runs completed'
+      label: 'AUDITS',
+      value: stats.total_audits ?? 0,
+      symbol: '[#]',
+      sub: 'total runs completed'
     },
     {
-      title: 'Files Audited',
-      value: stats.total_files_audited.toLocaleString(),
-      icon: CheckCircle,
-      color: 'green',
-      description: 'Total files analyzed'
+      label: 'FILES',
+      value: (stats.total_files_audited ?? 0).toLocaleString(),
+      symbol: '[>]',
+      sub: 'files analyzed'
     },
     {
-      title: 'Fixes Applied',
-      value: stats.total_fixes_applied,
-      icon: Zap,
-      color: 'purple',
-      description: 'Auto-applied documentation fixes'
+      label: 'FIXES',
+      value: stats.total_fixes_applied ?? 0,
+      symbol: '[~]',
+      sub: 'auto-applied'
     },
     {
-      title: 'Avg Duration',
-      value: `${stats.average_duration_seconds}s`,
-      icon: Clock,
-      color: 'orange',
-      description: 'Average audit time'
+      label: 'AVG TIME',
+      value: `${(stats.average_duration_seconds ?? 0).toFixed(1)}s`,
+      symbol: '[*]',
+      sub: 'per audit run'
     },
   ]
 
-  const colorClasses = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    purple: 'bg-purple-50 text-purple-600',
-    orange: 'bg-orange-50 text-orange-600',
-  }
-
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((card) => (
-        <div key={card.title} className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <div className={`p-3 rounded-lg ${colorClasses[card.color]}`}>
-              <card.icon className="h-6 w-6" />
+        <div key={card.label} className="bg-mono-card border border-mono-border p-5 retro-card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-mono-dim tracking-widest">{card.label}</p>
+              <p className="text-2xl font-bold text-white mt-1">{card.value}</p>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">{card.title}</p>
-              <p className="text-2xl font-bold text-gray-900">{card.value}</p>
-            </div>
+            <span className="text-mono-dim text-lg font-mono">{card.symbol}</span>
           </div>
-          <p className="mt-2 text-xs text-gray-400">{card.description}</p>
+          <p className="mt-2 text-xs text-mono-dim">{card.sub}</p>
         </div>
       ))}
     </div>

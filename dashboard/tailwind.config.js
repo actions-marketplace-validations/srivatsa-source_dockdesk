@@ -6,10 +6,16 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        mono: ['"JetBrains Mono"', '"Courier New"', 'monospace'],
+      },
       colors: {
-        'risk-high': '#ef4444',
-        'risk-medium': '#eab308',
-        'risk-low': '#22c55e',
+        'mono-bg': '#000000',
+        'mono-card': '#0a0a0a',
+        'mono-border': '#333333',
+        'mono-text': '#d4d4d4',
+        'mono-dim': '#666666',
+        'mono-accent': '#ffffff',
       }
     },
   },

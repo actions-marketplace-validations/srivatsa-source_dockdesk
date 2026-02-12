@@ -64,6 +64,15 @@ AUDIT_MODELS: Dict[str, AuditModel] = {
         max_context=4096,
         recommended_loc=(0, 5000),
     ),
+    "deepseek-r1:1.5b": AuditModel(
+        name="deepseek-r1:1.5b",
+        tier=ModelTier.SMALL,
+        params_b=1.5,
+        description="DeepSeek R1 distilled reasoning model. Chain-of-thought risk assessor.",
+        strengths=["Logical reasoning", "Chain-of-thought", "Risk assessment", "Safety judgement"],
+        max_context=8192,
+        recommended_loc=(0, 10000),
+    ),
     "starcoder2:3b": AuditModel(
         name="starcoder2:3b",
         tier=ModelTier.SMALL,
@@ -135,6 +144,9 @@ AUDIT_MODELS: Dict[str, AuditModel] = {
 
 # Default model for quick starts
 DEFAULT_MODEL = "qwen2.5-coder:3b"
+
+# Default reasoning model (DeepSeek-R1 for logical risk assessment)
+DEFAULT_REASONING_MODEL = "deepseek-r1:1.5b"
 
 
 def get_available_ollama_models() -> List[str]:
@@ -284,20 +296,21 @@ def validate_model(model_name: str, strict: bool = False) -> Tuple[bool, str]:
     # Check if audit-suitable
     if is_model_audit_suitable(model_name):
         info = get_model_info(model_name)
-        return True, f"✓ Model '{model_name}' is audit-suitable ({info.tier.value} tier, {info.params_b}B params)"
+        return True, f"[+] Model '{model_name}' is audit-suitable ({info.tier.value} tier, {info.params_b}B params)"
     
     if strict:
         return False, f"Model '{model_name}' is not in the audit-suitable allowlist. Use --list-models to see recommended models."
     
-    return True, f"⚠ Model '{model_name}' is not in the allowlist but will be used. Results may vary."
+    return True, f"[!] Model '{model_name}' is not in the allowlist but will be used. Results may vary."
 
 
 def print_model_list():
     """Print formatted table of available audit models."""
-    table = Table(title="🧠 DockDesk Audit-Suitable Models", show_header=True, header_style="bold magenta")
+    table = Table(title="DockDesk Audit-Suitable Models", show_header=True, header_style="bold white", border_style="dim")
     
-    table.add_column("Model", style="cyan", no_wrap=True)
-    table.add_column("Tier", style="yellow")
+    table.add_column("Model", style="white", no_wrap=True)
+    table.add_column("Role", style="white")
+    table.add_column("Tier", style="white")
     table.add_column("Params", justify="right")
     table.add_column("LOC Range", justify="right")
     table.add_column("Available", justify="center")
@@ -311,17 +324,26 @@ def print_model_list():
         min_loc, max_loc = model.recommended_loc
         loc_range = f"{min_loc//1000}k-{max_loc//1000}k" if max_loc < 1000000 else f"{min_loc//1000}k+"
         
+        # Determine role
+        if "reasoning" in " ".join(model.strengths).lower() or "chain-of-thought" in " ".join(model.strengths).lower():
+            role = "[R] Reasoning"
+        else:
+            role = "[C] Code"
+        
         table.add_row(
             name,
+            role,
             model.tier.value.upper(),
             f"{model.params_b}B",
             loc_range,
-            "✓" if is_available else "✗",
+            "[Y]" if is_available else "[N]",
             model.description[:50] + "..." if len(model.description) > 50 else model.description
         )
     
     console.print(table)
-    console.print("\n[dim]Pull a model: ollama pull <model-name>[/dim]")
+    console.print(f"\n[dim]Default code model:      {DEFAULT_MODEL}[/dim]")
+    console.print(f"[dim]Default reasoning model: {DEFAULT_REASONING_MODEL}[/dim]")
+    console.print("[dim]Pull a model: ollama pull <model-name>[/dim]")
     console.print("[dim]Auto-select best model: python auditor_slm.py --auto-tune[/dim]")
 
 
@@ -336,8 +358,8 @@ def get_model_recommendation_message(model_name: str, workspace: str) -> str:
     min_loc, max_loc = info.recommended_loc
     
     if loc < min_loc:
-        return f"💡 Using {model_name} ({info.tier.value}). Consider a smaller model for {loc:,} LOC codebase."
+        return f"[>] Using {model_name} ({info.tier.value}). Consider a smaller model for {loc:,} LOC codebase."
     elif loc > max_loc:
-        return f"💡 Using {model_name} ({info.tier.value}). Consider a larger model for {loc:,} LOC codebase."
+        return f"[>] Using {model_name} ({info.tier.value}). Consider a larger model for {loc:,} LOC codebase."
     else:
-        return f"✓ Using {model_name} ({info.tier.value}) - optimal for {loc:,} LOC codebase."
+        return f"[+] Using {model_name} ({info.tier.value}) - optimal for {loc:,} LOC codebase."
