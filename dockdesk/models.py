@@ -149,8 +149,15 @@ DEFAULT_MODEL = "qwen2.5-coder:3b"
 DEFAULT_REASONING_MODEL = "deepseek-r1:1.5b"
 
 
+# Module-level cache for ollama model list (avoid repeated subprocess calls)
+_ollama_models_cache: Optional[List[str]] = None
+
+
 def get_available_ollama_models() -> List[str]:
-    """Query Ollama for locally available models."""
+    """Query Ollama for locally available models. Cached per session."""
+    global _ollama_models_cache
+    if _ollama_models_cache is not None:
+        return _ollama_models_cache
     try:
         result = subprocess.run(
             ["ollama", "list"],
@@ -159,6 +166,7 @@ def get_available_ollama_models() -> List[str]:
             timeout=10
         )
         if result.returncode != 0:
+            _ollama_models_cache = []
             return []
         
         lines = result.stdout.strip().split("\n")[1:]  # Skip header
@@ -167,8 +175,10 @@ def get_available_ollama_models() -> List[str]:
             if line.strip():
                 model_name = line.split()[0]
                 models.append(model_name)
+        _ollama_models_cache = models
         return models
     except Exception:
+        _ollama_models_cache = []
         return []
 
 
@@ -202,11 +212,27 @@ def get_model_info(model_name: str) -> Optional[AuditModel]:
     return None
 
 
-def count_lines_of_code(workspace: str) -> int:
-    """Count total lines of code in workspace."""
+def count_lines_of_code(workspace: str, file_list: Optional[List[str]] = None) -> int:
+    """Count total lines of code in workspace.
+    
+    If file_list is provided, counts only those files (faster when discovery already ran).
+    Otherwise falls back to a full os.walk.
+    """
     total_loc = 0
     code_extensions = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.cs'}
-    
+
+    if file_list:
+        # Fast path: reuse discovered file list
+        for fpath in file_list:
+            ext = os.path.splitext(fpath)[1].lower()
+            if ext in code_extensions:
+                try:
+                    with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
+                        total_loc += sum(1 for line in f if line.strip())
+                except Exception:
+                    continue
+        return total_loc
+
     for root, dirs, files in os.walk(workspace):
         # Skip common non-code directories
         dirs[:] = [d for d in dirs if d not in {

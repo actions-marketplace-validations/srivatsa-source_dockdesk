@@ -1,0 +1,143 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pip-install-test:
+    name: Pip Install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11']
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Ollama (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+          ollama pull qwen2.5-coder:1.5b
+          ollama pull deepseek-r1:1.5b
+
+      - name: Install Ollama (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile "$env:TEMP\OllamaSetup.exe"
+          Start-Process "$env:TEMP\OllamaSetup.exe" -ArgumentList "/S" -Wait
+          Start-Process "ollama" -ArgumentList "serve" -NoNewWindow
+          Start-Sleep -Seconds 10
+          ollama pull qwen2.5-coder:1.5b
+          ollama pull deepseek-r1:1.5b
+
+      - name: Pip install dockdesk
+        run: pip install .
+
+      - name: Verify CLI
+        run: |
+          dockdesk --version
+          dockdesk --help
+
+      - name: Verify list-models
+        run: dockdesk list-models
+
+      - name: Clone test repo
+        run: git clone --depth 1 https://github.com/pallets/click /tmp/test-repo
+
+      - name: Run smoke audit
+        run: dockdesk audit --workspace /tmp/test-repo --skip-rag --max-files 10 --fast --ci
+        timeout-minutes: 5
+
+      - name: Verify outputs
+        shell: bash
+        run: |
+          test -s /tmp/test-repo/audit_report.md || (echo "Missing audit_report.md" && exit 1)
+          test -s /tmp/test-repo/dashboard_data.json || (echo "Missing dashboard_data.json" && exit 1)
+          python3 -c "
+          import json
+          with open('/tmp/test-repo/dashboard_data.json') as f:
+              data = json.load(f)
+          files = data.get('latest_run_files', [])
+          assert len(files) > 0, f'No results in dashboard_data.json'
+          print(f'✓ {len(files)} files analyzed')
+          "
+
+  cross-repo-test:
+    name: Cross-Repo (${{ matrix.repo }})
+    runs-on: ubuntu-latest
+    needs: pip-install-test
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - { name: click, url: "https://github.com/pallets/click", max_files: 15 }
+          - { name: httpbin, url: "https://github.com/psf/httpbin", max_files: 15 }
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+          ollama pull qwen2.5-coder:1.5b
+          ollama pull deepseek-r1:1.5b
+
+      - name: Install dockdesk
+        run: pip install .
+
+      - name: Clone ${{ matrix.repo.name }}
+        run: git clone --depth 1 ${{ matrix.repo.url }} /tmp/test-repo
+
+      - name: Audit ${{ matrix.repo.name }}
+        run: |
+          START_TIME=$(date +%s)
+          dockdesk audit \
+            --workspace /tmp/test-repo \
+            --skip-rag \
+            --max-files ${{ matrix.repo.max_files }} \
+            --fast \
+            --ci
+          END_TIME=$(date +%s)
+          echo "Duration: $((END_TIME - START_TIME))s"
+        timeout-minutes: 8
+
+      - name: Validate results
+        run: |
+          python3 -c "
+          import json, sys
+          with open('/tmp/test-repo/dashboard_data.json') as f:
+              data = json.load(f)
+          files = data.get('latest_run_files', [])
+          if len(files) == 0:
+              print('FAIL: 0 results produced')
+              sys.exit(1)
+          high = sum(1 for f in files if f.get('risk') == 'HIGH')
+          med = sum(1 for f in files if f.get('risk') == 'MEDIUM')
+          low = sum(1 for f in files if f.get('risk') == 'LOW')
+          passes = sum(1 for f in files if f.get('status') == 'PASS')
+          print(f'${{ matrix.repo.name }}: {len(files)} files | HIGH={high} MED={med} LOW={low} | PASS={passes}')
+          "

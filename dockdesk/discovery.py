@@ -190,6 +190,25 @@ class Discovery:
 
     # ── Legacy-compatible public API ──────────────────────────────────
 
+    def find_all(self) -> Tuple[List[str], 'List[DocumentationSource]']:
+        """Single-walk returning (code_files, doc_sources). Most efficient entry point."""
+        code_files, doc_paths = self._single_walk()
+        code_files = sorted(code_files)
+        sources = []
+        for fpath in doc_paths:
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                sources.append(DocumentationSource(
+                    path=fpath,
+                    content=content,
+                    doc_type='file',
+                    language='markdown' if fpath.endswith('.md') else 'text',
+                ))
+            except Exception:
+                continue
+        return code_files, sources
+
     def find_code_files(self) -> List[str]:
         """Find all code files. Single-pass, filtered."""
         code_files, _ = self._single_walk()

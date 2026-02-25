@@ -86,6 +86,7 @@ class DockDeskConfig:
     batch_size: int = 5          # Files per batched LLM call (code analysis)
     ollama_urls: str = ""        # Comma-separated Ollama endpoints
     respect_gitignore: bool = True
+    turbo: bool = False           # Aggressive speed mode: --fast --batch-size 8 --workers 4 --skip-rag
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -120,6 +121,7 @@ class DockDeskConfig:
             "batch_size": self.batch_size,
             "ollama_urls": self.ollama_urls,
             "respect_gitignore": self.respect_gitignore,
+            "turbo": self.turbo,
         }
 
     def get_include_list(self) -> List[str]:

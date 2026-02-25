@@ -18,6 +18,11 @@ import sys
 import os
 import json
 import time
+import tempfile
+import shutil
+import subprocess
+import re
+import atexit
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -33,9 +38,11 @@ ASCII_BANNER = r"""
 """
 
 
-def _print_loading():
-    """Print retro ASCII loading animation."""
+def _print_loading(skip: bool = False):
+    """Print retro ASCII loading animation. Skipped in fast/CI mode."""
     console.print("[bold white]" + ASCII_BANNER + "[/bold white]")
+    if skip:
+        return
     frames = [
         "[dim]> Initializing neural auditor...      [/dim]",
         "[dim]> Loading code analysis engine...      [/dim]",
@@ -46,6 +53,60 @@ def _print_loading():
         console.print(frame)
         time.sleep(0.15)
     console.print()
+
+
+# ── Git URL / remote repo support ──
+
+_GIT_URL_PATTERN = re.compile(
+    r"^(https?://|git@|ssh://)", re.IGNORECASE
+)
+
+_temp_clone_dirs: list[str] = []
+
+
+def _cleanup_temp_clones():
+    """Remove any temporary clone directories on exit."""
+    for d in _temp_clone_dirs:
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+
+atexit.register(_cleanup_temp_clones)
+
+
+def _resolve_workspace(workspace: str, keep_clone: bool = False) -> tuple[str, bool]:
+    """Resolve a workspace argument that may be a git URL.
+
+    Returns (local_path, is_temp_clone).
+    If the workspace is a git URL it will be shallow-cloned into a temp dir.
+    """
+    if not _GIT_URL_PATTERN.match(workspace):
+        # Plain local path
+        return os.path.abspath(workspace), False
+
+    # Extract repo name for folder naming
+    repo_name = workspace.rstrip("/").split("/")[-1].removesuffix(".git")
+    clone_dir = os.path.join(tempfile.gettempdir(), f"dockdesk_{repo_name}")
+
+    if os.path.isdir(clone_dir):
+        console.print(f"[yellow][*] Using existing clone: {clone_dir}[/yellow]")
+    else:
+        console.print(f"[yellow][*] Cloning {workspace} ...[/yellow]")
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", workspace, clone_dir],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            console.print(f"[bold red][-] Clone failed: {result.stderr.strip()}[/bold red]")
+            sys.exit(1)
+        console.print(f"[green][+] Cloned to {clone_dir}[/green]")
+
+    if not keep_clone:
+        _temp_clone_dirs.append(clone_dir)
+
+    return clone_dir, True
 
 
 def run_audit(args):
@@ -60,9 +121,14 @@ def run_audit(args):
     from dockdesk.changelog import ChangelogWriter
     from dockdesk.fixer import apply_fixes_batch
 
+    # Resolve git URLs → local clone BEFORE building config
+    resolved_workspace, is_clone = _resolve_workspace(
+        args.workspace, keep_clone=getattr(args, 'keep_clone', False)
+    )
+
     # Build config from CLI args
     cli_args = {
-        "workspace": args.workspace,
+        "workspace": resolved_workspace,
         "model": args.model,
         "detect_model": getattr(args, 'detect_model', None),
         "fix_model": getattr(args, 'fix_model', None),
@@ -88,28 +154,45 @@ def run_audit(args):
         "batch_size": getattr(args, 'batch_size', None),
         "clear_cache": getattr(args, 'clear_cache', None),
         "respect_gitignore": not getattr(args, 'no_gitignore', False) if hasattr(args, 'no_gitignore') else None,
+        "turbo": getattr(args, 'turbo', None),
     }
 
-    config = build_config(cli_args, args.workspace)
+    config = build_config(cli_args, resolved_workspace)
+
+    # Apply turbo overrides (aggressive speed defaults)
+    if config.turbo:
+        config.fast_mode = True
+        config.skip_rag = True
+        if config.batch_size <= 5:
+            config.batch_size = 8
+        if config.workers <= 0:
+            config.workers = 4
+        console.print("[white][*] Turbo mode: --fast --skip-rag --batch-size 8 --workers 4[/white]")
+
     workspace = config.workspace
 
     # Model selection
     model = config.model
     model_tier = "unknown"
-    total_loc = count_lines_of_code(workspace)
+    # Defer LOC counting — will be done lazily or after discovery
+    total_loc = 0
 
     # Resolve reasoning model
     reasoning_model = config.reasoning_model or DEFAULT_REASONING_MODEL
     if not config.reasoning_model and config.fix_model:
         reasoning_model = config.fix_model
 
-    _print_loading()
+    # Skip animation in fast/CI mode for ~600ms savings
+    skip_animation = bool(config.fast_mode or config.ci_mode or getattr(args, 'turbo', False) or os.environ.get('CI'))
+    _print_loading(skip=skip_animation)
 
     if config.auto_tune:
         model, reason = auto_select_model(workspace)
         console.print(f"[white][>] Auto-tuned model: {model} ({reason})[/white]")
         model_info = get_model_info(model)
         model_tier = model_info.tier.value if model_info else "unknown"
+        # LOC is counted inside auto_select_model — retrieve it once
+        total_loc = count_lines_of_code(workspace)
     else:
         is_valid, message = validate_model(model, strict=False)
         if not is_valid:
@@ -401,6 +484,10 @@ def add_audit_args(parser):
                             help="Clear result cache before running")
     scale_group.add_argument("--no-gitignore", action="store_true", default=False,
                             help="Ignore .gitignore rules during discovery")
+    scale_group.add_argument("--turbo", action="store_true", default=None,
+                            help="Turbo mode: --fast --batch-size 8 --workers 4 --skip-rag combined")
+    scale_group.add_argument("--keep-clone", action="store_true", default=False,
+                            help="Keep temporary git clone after audit (when using a URL as workspace)")
 
 
 def main():

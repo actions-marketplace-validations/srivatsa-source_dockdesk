@@ -47,9 +47,9 @@ rag = [
 dockdesk = "dockdesk.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dockdesk/auditor"
-Repository = "https://github.com/dockdesk/auditor"
-Issues = "https://github.com/dockdesk/auditor/issues"
+Homepage = "https://github.com/srivatsa-source/dockdesk"
+Repository = "https://github.com/srivatsa-source/dockdesk"
+Issues = "https://github.com/srivatsa-source/dockdesk/issues"
 
 [tool.setuptools.packages.find]
 include = ["dockdesk*"]

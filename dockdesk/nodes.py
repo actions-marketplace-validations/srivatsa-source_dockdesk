@@ -90,8 +90,8 @@ def discover_node(state: AuditState) -> AuditState:
         max_files=max_files,
         respect_gitignore=respect_gi,
     )
-    code_files = discovery.find_code_files()
-    docs = discovery.find_docs()
+    # Single discovery walk — find_all() is 2x faster than separate find_code_files() + find_docs()
+    code_files, docs = discovery.find_all()
 
     # Show discovery stats
     gi_tag = " (.gitignore active)" if discovery._gitignore else ""
@@ -384,20 +384,31 @@ def code_analysis_node(state: AuditState) -> AuditState:
     batch_size = config.batch_size if config and hasattr(config, 'batch_size') else 5
     fast_mode = config.fast_mode if config and hasattr(config, 'fast_mode') else False
 
+    # ── Pre-compute cache keys and doc index outside thread pool ──
+    _precomputed_keys: Dict[str, str] = {}
+    for fp in changed_files:
+        content = state["file_contents"].get(fp, "")
+        if _cache:
+            _precomputed_keys[fp] = ResultCache.make_key(fp, content, code_model)
+
+    _precomputed_docs: Dict[str, List[dict]] = {}
+    for fp in changed_files:
+        _precomputed_docs[fp] = _select_docs_for_file(fp, state["doc_sources"], top_k=2)
+
     def _analyze_single(file_path: str) -> dict:
         start_time = time.time()
         code_content = state["file_contents"].get(file_path, "")
 
-        # ── SQLite cache check ──
-        if _cache:
-            ck = ResultCache.make_key(file_path, code_content, code_model)
+        # ── SQLite cache check (pre-computed key) ──
+        ck = _precomputed_keys.get(file_path)
+        if _cache and ck:
             cached = _cache.get(ck)
             if cached:
                 cached["duration_ms"] = 0
                 cached["cached"] = True
                 return cached
 
-        docs_subset = _select_docs_for_file(file_path, state["doc_sources"], top_k=2)
+        docs_subset = _precomputed_docs.get(file_path, [])
         docs_text = "\n".join([f"[{d['path']}]: {d['content'][:500]}" for d in docs_subset])
 
         # Truncate code to fit context window — keep first 2000 chars
@@ -429,9 +440,8 @@ Example:
         result.setdefault("summary", "")
         result["cached"] = False
 
-        # Persist to SQLite cache
-        if _cache:
-            ck = ResultCache.make_key(file_path, code_content, code_model)
+        # Persist to SQLite cache (reuse pre-computed key)
+        if _cache and ck:
             _cache.put(ck, result, model=code_model, file_path=file_path)
         return result
 
@@ -445,9 +455,8 @@ Example:
 
         # Check cache first for each file in batch
         for fp in file_paths:
-            code_content = state["file_contents"].get(fp, "")
-            if _cache:
-                ck = ResultCache.make_key(fp, code_content, code_model)
+            ck = _precomputed_keys.get(fp)
+            if _cache and ck:
                 cached = _cache.get(ck)
                 if cached:
                     cached["duration_ms"] = 0
@@ -462,7 +471,7 @@ Example:
         # Build multi-file prompt
         for fp in uncached_files:
             code_content = state["file_contents"].get(fp, "")[:1200]  # tighter trim for batches
-            docs_subset = _select_docs_for_file(fp, state["doc_sources"], top_k=1)
+            docs_subset = _precomputed_docs.get(fp, [])
             docs_text = docs_subset[0]['content'][:300] if docs_subset else "(no docs)"
             batch_prompt_parts.append(
                 f"=== FILE: {os.path.basename(fp)} ===\nCODE:\n{code_content}\nDOCS:\n{docs_text}"
@@ -506,26 +515,29 @@ Reply ONLY with the JSON array, no other text."""),
                 r.setdefault("summary", "")
                 r["cached"] = False
                 results_map[fp] = r
-                # Cache each result
-                if _cache:
-                    code_content = state["file_contents"].get(fp, "")
-                    ck = ResultCache.make_key(fp, code_content, code_model)
+                # Cache each result (reuse pre-computed key)
+                ck = _precomputed_keys.get(fp)
+                if _cache and ck:
                     _cache.put(ck, r, model=code_model, file_path=fp)
         except Exception as e:
-            # Fallback: analyze individually
-            dur = int((time.time() - start_time) * 1000)
+            # Fallback: re-analyze individually instead of losing the whole batch
+            console.print(f"[dim]  Batch failed ({e}), falling back to individual analysis...[/dim]")
             for fp in uncached_files:
-                results_map[fp] = {
-                    "file": fp, "status": "ERROR", "findings": [str(e)],
-                    "summary": f"Batch analysis failed: {str(e)}", "draft_fix": "",
-                    "code_model": code_model, "duration_ms": dur, "cached": False,
-                }
+                try:
+                    individual_result = _analyze_single(fp)
+                    results_map[fp] = individual_result
+                except Exception as ie:
+                    results_map[fp] = {
+                        "file": fp, "status": "ERROR", "findings": [str(ie)],
+                        "summary": f"Analysis failed: {str(ie)}", "draft_fix": "",
+                        "code_model": code_model, "duration_ms": 0, "cached": False,
+                    }
 
         return [results_map[fp] for fp in file_paths if fp in results_map]
 
     # ── Decide: batch or individual analysis ──
     code_findings: List[dict] = []
-    pool_workers = _pool.optimal_workers(base=2) if _pool else 4
+    pool_workers = _pool.optimal_workers(base=4) if _pool else 4
     cfg_workers = config.workers if config and hasattr(config, 'workers') and config.workers > 0 else 0
     max_workers = cfg_workers if cfg_workers > 0 else min(pool_workers, len(changed_files)) if changed_files else 1
 
@@ -542,7 +554,7 @@ Reply ONLY with the JSON array, no other text."""),
             # ── Batched mode: group files into batches ──
             batches = [changed_files[i:i+batch_size] for i in range(0, len(changed_files), batch_size)]
             task = progress.add_task("Code analysis (batched)", total=len(batches))
-            with ThreadPoolExecutor(max_workers=max(1, max_workers // 2)) as executor:
+            with ThreadPoolExecutor(max_workers=max(2, max_workers // 2)) as executor:
                 future_map = {executor.submit(_analyze_batch, b): b for b in batches}
                 for future in as_completed(future_map):
                     try:
@@ -681,14 +693,20 @@ Example:
             ("user", "FILE: {file_path}\nSTATUS: {status}\nFINDINGS: {findings_text}\nSUMMARY: {summary}\nDRAFT_FIX: {draft_fix}")
         ])
 
-        llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=1024, num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=1024, num_ctx=2048)
+        llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048)
         chain = prompt | llm
 
         # Retry loop — DeepSeek-R1 sometimes returns empty due to internal <think> consuming all tokens
+        # Progressive num_predict escalation: 1536 → 2048 on retry
         result = None
         last_content = ""
-        for attempt in range(3):
+        predict_schedule = [1536, 2048]
+        for attempt in range(2):
             try:
+                if attempt > 0:
+                    # Escalate num_predict on retry
+                    llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=predict_schedule[min(attempt, len(predict_schedule)-1)], num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=predict_schedule[min(attempt, len(predict_schedule)-1)], num_ctx=2048)
+                    chain = prompt | llm
                 response = chain.invoke({
                     "file_path": os.path.basename(file_path),
                     "status": status,
@@ -709,7 +727,7 @@ Example:
         if result is None:
             result = {
                 "risk": "MEDIUM",
-                "summary": f"Reasoning model returned no output after 3 attempts",
+                "summary": f"Reasoning model returned no output after 2 attempts",
                 "fix": "",
                 "safe_to_push": False,
                 "reasoning": last_content[:300] if last_content else "",
@@ -767,7 +785,7 @@ Example:
 
     # Run reasoning in PARALLEL for FAIL/ERROR files
     if needs_reasoning:
-        pool_workers = _pool.optimal_workers(base=2) if _pool else 3
+        pool_workers = _pool.optimal_workers(base=4) if _pool else 3
         cfg_workers = config.workers if config and hasattr(config, 'workers') and config.workers > 0 else 0
         max_workers = cfg_workers if cfg_workers > 0 else min(pool_workers, len(needs_reasoning))
         with Progress(

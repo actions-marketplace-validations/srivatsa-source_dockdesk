@@ -223,8 +223,8 @@ runs:
           CLI_ARGS="$CLI_ARGS --skip-rag"
         fi
         
-        # Run the auditor
-        python ${{ github.action_path }}/auditor_slm.py $CLI_ARGS
+        # Run the auditor via installed CLI
+        dockdesk $CLI_ARGS
         
         # Parse results for outputs — files now land in workspace dir
         WS="${{ inputs.workspace_path }}"

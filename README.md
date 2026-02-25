@@ -4,7 +4,9 @@
 
 Ensure your code and documentation never drift apart without sending a single byte to the cloud.
 
-[![GitHub Action](https://img.shields.io/badge/GitHub%20Action-Ready-2088FF?logo=github-actions)](https://github.com/marketplace/actions/dockdesk-neural-auditor)
+[![PyPI](https://img.shields.io/pypi/v/dockdesk?color=blue&logo=pypi&logoColor=white)](https://pypi.org/project/dockdesk/)
+[![Python 3.11+](https://img.shields.io/pypi/pyversions/dockdesk)](https://pypi.org/project/dockdesk/)
+[![GitHub Action](https://img.shields.io/badge/GitHub%20Action-Ready-2088FF?logo=github-actions)](https://github.com/srivatsa-source/dockdesk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Powered By: Ollama](https://img.shields.io/badge/Neural%20Engine-Ollama-blue)](https://ollama.com)
 
@@ -57,6 +59,9 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 | **React Dashboard** | Visualize audit history, trends, and model usage |
 | **SARIF Output** | IDE integration for VS Code |
 | **Faster Audits** | Git diff scoping, parallel LLM calls, cached RAG |
+| **pip install** | `pip install dockdesk` — works on any system, no cloning needed |
+| **Git URL Audits** | Audit any repo by URL: `dockdesk audit -w https://github.com/...` |
+| **Turbo Mode** | `--turbo` flag for maximum speed (parallel + fast + skip-rag) |
 
 ---
 
@@ -64,46 +69,53 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ```mermaid
 flowchart TB
-    subgraph GHA["GitHub Actions Runner"]
-        direction TB
-        CHECKOUT["actions/checkout"]
-        PYTHON["actions/setup-python"]
-        OLLAMA_SVC["Ollama Service Container"]
-        
-        subgraph DOCKDESK["DockDesk Composite Action"]
-            DEPS["Install Dependencies"]
-            WAIT["Wait for Ollama"]
-            PULL["Pull Model"]
-            AUDIT["Run Audit"]
-            DEPS --> WAIT --> PULL --> AUDIT
-        end
+    subgraph INSTALL["Install (any system)"]
+        PIP["pip install dockdesk"]
+        GITHUB["pip install git+github.com/..."]
+        DOCKER["docker run dockdesk"]
     end
 
-    subgraph CORE["DockDesk Core"]
-        DISCOVER["Discovery"]
-        RAG["RAG Engine"]
-        LLM["LLM Audit"]
-        FIXER["Fix Generator"]
-        DISCOVER --> RAG --> LLM --> FIXER
+    subgraph INPUT["Input"]
+        LOCAL["Local repo path"]
+        GITURL["Git URL (auto-clone)"]
+    end
+
+    subgraph CORE["DockDesk Audit Pipeline"]
+        direction TB
+        DISCOVER["1. Discovery\n(files, .gitignore, git-diff)"]
+        MERKLE["2. Integrity Check\n(Merkle tree / git diff)"]
+        RAG["3. RAG Context\n(ChromaDB embeddings)"]
+        CODE["4. Code Analysis\n(Qwen Coder SLM)"]
+        REASON["5. Reasoning\n(DeepSeek-R1)"]
+        REPORT["6. Reporting"]
+        DISCOVER --> MERKLE --> RAG --> CODE --> REASON --> REPORT
     end
 
     subgraph OUTPUT["Output"]
-        REPORT["Report"]
-        MD["Markdown"]
+        MD["Markdown Report"]
         JSON["JSON"]
-        SARIF["SARIF"]
-        REPORT --> MD & JSON & SARIF
+        SARIF["SARIF (VS Code)"]
+        DASH["Dashboard Data"]
+        FIX["Auto-Fixes"]
     end
 
-    CHECKOUT --> PYTHON --> DOCKDESK
-    OLLAMA_SVC <--> AUDIT
-    AUDIT --> DISCOVER
-    FIXER --> REPORT
+    subgraph CI["CI / GitHub Actions"]
+        GHA["srivatsa-source/dockdesk@main"]
+        OLLAMA_SVC["Ollama Service Container"]
+        GHA --> CORE
+        OLLAMA_SVC <--> CODE
+        OLLAMA_SVC <--> REASON
+    end
 
-    style GHA fill:#e1f5fe,stroke:#01579b
-    style DOCKDESK fill:#e8f5e9,stroke:#2e7d32
-    style CORE fill:#f3e5f5,stroke:#7b1fa2
+    PIP & GITHUB & DOCKER --> INPUT
+    LOCAL & GITURL --> DISCOVER
+    REPORT --> MD & JSON & SARIF & DASH & FIX
+
+    style INSTALL fill:#e8f5e9,stroke:#2e7d32
+    style INPUT fill:#fff3e0,stroke:#e65100
+    style CORE fill:#e1f5fe,stroke:#01579b
     style OUTPUT fill:#fce4ec,stroke:#c2185b
+    style CI fill:#f3e5f5,stroke:#7b1fa2
 ```
 
 ### Component Overview
@@ -111,11 +123,11 @@ flowchart TB
 | Component | File | Description |
 |-----------|------|-------------|
 | **Action** | `action.yml` | Composite GitHub Action (no Docker) |
-| **Auditor** | `auditor_slm.py` | Main CLI entry point |
-| **Discovery** | `src/discovery.py` | Scans workspace for code and docs |
-| **RAG** | `src/rag.py` | Retrieves context via ChromaDB |
-| **Graph** | `src/graph.py` | LangGraph audit pipeline |
-| **Fixer** | `src/fixer.py` | Generates and applies fixes |
+| **CLI** | `dockdesk/cli.py` | Main CLI entry point (`dockdesk` command) |
+| **Discovery** | `dockdesk/discovery.py` | Scans workspace for code and docs |
+| **RAG** | `dockdesk/rag.py` | Retrieves context via ChromaDB |
+| **Graph** | `dockdesk/graph.py` | LangGraph audit pipeline |
+| **Fixer** | `dockdesk/fixer.py` | Generates and applies fixes |
 | **Dashboard** | `dashboard/` | React visualization app |
 
 ---
@@ -134,19 +146,30 @@ flowchart TB
 # 1. Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 2. Pull an audit model
+# 2. Pull audit models
 ollama pull qwen2.5-coder:3b
+ollama pull deepseek-r1:1.5b
 
-# 3. Clone and install DockDesk
-git clone https://github.com/srivatsa-source/dockdesk.git
-cd dockdesk
-pip install -r requirements.txt
+# 3. Install DockDesk (pick one)
+pip install dockdesk                  # From PyPI
+pip install git+https://github.com/srivatsa-source/dockdesk.git  # From GitHub
 
 # 4. Run your first audit
-python auditor_slm.py --workspace /path/to/your/project
+dockdesk audit --workspace /path/to/your/project
+
+# Or audit a remote repo directly
+dockdesk audit -w https://github.com/pallets/flask --skip-rag --max-files 20 --fast
 ```
 
-See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed installation instructions.
+#### Development Install
+
+```bash
+git clone https://github.com/srivatsa-source/dockdesk.git
+cd dockdesk
+pip install -e .    # Editable install — code changes take effect immediately
+```
+
+See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed setup instructions.
 
 ---
 
@@ -178,13 +201,16 @@ DockDesk auto-tunes model selection based on codebase size (lines of code):
 
 ```bash
 # Auto-select model based on LOC
-python auditor_slm.py --auto-tune
+dockdesk audit --auto-tune
 
 # Specify model manually
-python auditor_slm.py --model codellama:7b
+dockdesk audit --model codellama:7b
+
+# Audit a GitHub repo directly
+dockdesk audit -w https://github.com/pallets/flask --skip-rag --fast
 
 # List all supported models
-python auditor_slm.py list-models
+dockdesk list-models
 ```
 
 ---
@@ -195,30 +221,37 @@ python auditor_slm.py list-models
 
 ```bash
 # Basic audit
-python auditor_slm.py --workspace ./my-project
+dockdesk audit --workspace ./my-project
+
+# Audit a remote repo by URL
+dockdesk audit -w https://github.com/django/django --skip-rag --max-files 30 --fast
 
 # Auto-tune model and apply fixes
-python auditor_slm.py --auto-tune --fix
+dockdesk audit --auto-tune --fix
 
 # CI mode with risk gating
-python auditor_slm.py --ci --fail-on-risk HIGH
+dockdesk audit --ci --fail-on-risk HIGH
 
 # SARIF output for VS Code
-python auditor_slm.py --format sarif --output audit.sarif
+dockdesk audit --format sarif --output audit.sarif
+
+# Turbo mode (fast + parallel + skip-rag)
+dockdesk audit --turbo
 
 # Export dashboard data
-python auditor_slm.py dashboard --export dashboard_data.json
+dockdesk dashboard --export dashboard_data.json
 
 # Initialize configuration file
-python auditor_slm.py init
+dockdesk init
 ```
 
 ### Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--workspace` | `-w` | Path to audit | `.` |
+| `--workspace` | `-w` | Local path or git URL to audit | `.` |
 | `--model` | `-m` | Ollama model name | `qwen2.5-coder:3b` |
+| `--reasoning-model` | | DeepSeek-R1 model for risk assessment | `deepseek-r1:1.5b` |
 | `--auto-tune` | | Auto-select model by LOC | `false` |
 | `--fix` | | Apply documentation fixes | `false` |
 | `--fix-code` | | Apply code fixes | `false` |
@@ -227,6 +260,10 @@ python auditor_slm.py init
 | `--ci` | | CI mode (non-interactive) | `false` |
 | `--fail-on-risk` | | Exit 1 on risk level: `HIGH`, `MEDIUM`, `LOW` | `HIGH` |
 | `--skip-rag` | | Skip RAG for faster audits | `false` |
+| `--turbo` | | Turbo mode (fast + parallel + skip-rag) | `false` |
+| `--max-files` | | Max files to analyze | unlimited |
+| `--workers` | | Parallel worker threads | auto |
+| `--keep-clone` | | Keep temp clone after URL audit | `false` |
 | `--verbose` | `-v` | Verbose output | `false` |
 
 ---
@@ -300,7 +337,7 @@ Visualize audit history with the React dashboard.
 
 ```bash
 # Export audit data
-python auditor_slm.py dashboard --export dashboard/public/dashboard_data.json
+dockdesk dashboard --export dashboard/public/dashboard_data.json
 
 # Run dashboard locally
 cd dashboard
@@ -388,7 +425,8 @@ Configuration values are resolved in this order (highest to lowest priority):
 - [ ] Pre-commit hook package (npm/pip)
 - [ ] Multi-model voting and consensus
 - [ ] JavaScript/TypeScript support
-- [ ] Publish to GitHub Marketplace under `dockdesk/auditor`
+- [ ] Publish to GitHub Marketplace
+- [x] pip install from PyPI / GitHub
 
 ---
 
@@ -403,23 +441,26 @@ git clone https://github.com/srivatsa-source/dockdesk.git
 cd dockdesk
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
+pip install -e .           # Editable install
 ```
 
 ### Project Structure
 
 ```
 dockdesk/
-├── action.yml          # GitHub Composite Action
-├── auditor_slm.py      # Main CLI
-├── requirements.txt    # Python dependencies
-├── src/                # Core modules
-│   ├── discovery.py    # File discovery
-│   ├── graph.py        # LangGraph pipeline
-│   ├── rag.py          # RAG retrieval
-│   ├── fixer.py        # Fix generation
+├── action.yml            # GitHub Composite Action
+├── pyproject.toml        # Package metadata & dependencies
+├── dockdesk/             # Core Python package
+│   ├── cli.py            # CLI entry point (dockdesk command)
+│   ├── graph.py          # LangGraph audit pipeline
+│   ├── discovery.py      # File discovery
+│   ├── rag.py            # RAG retrieval
+│   ├── fixer.py          # Fix generation
+│   ├── models.py         # Model selection & validation
+│   ├── nodes.py          # LangGraph nodes
 │   └── ...
-└── dashboard/          # React dashboard
+├── dashboard/            # React visualization app
+└── tests/                # Test suite & manifests
 ```
 
 ---

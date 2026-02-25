@@ -56,41 +56,48 @@ ollama pull qwen2.5-coder:7b
 
 ### Let DockDesk Choose (Auto-Tune)
 ```bash
-# DockDesk will analyze your codebase and select the best model
-python auditor_slm.py --auto-tune
+dockdesk audit --auto-tune
 ```
 
 ---
 
 ## Step 3: Install DockDesk
 
-### Option A: Clone the Repository
-```bash
-git clone https://github.com/dockdesk/auditor.git
-cd auditor
-pip install -r requirements.txt
-```
-
-### Option B: Install via pip (coming soon)
+### Option A: Install via pip (recommended)
 ```bash
 pip install dockdesk
+```
+
+### Option B: Install from GitHub
+```bash
+pip install git+https://github.com/srivatsa-source/dockdesk.git
+```
+
+### Option C: Development install
+```bash
+git clone https://github.com/srivatsa-source/dockdesk.git
+cd dockdesk
+pip install -e .
 ```
 
 ---
 
 ## Step 4: Run Your First Audit
 
-Navigate to your project directory and run:
+Run from anywhere (no need to be in the dockdesk directory):
 
 ```bash
 # Basic audit
-python auditor_slm.py --workspace /path/to/your/project
+dockdesk audit --workspace /path/to/your/project
+
+# Audit a remote GitHub repo directly
+dockdesk audit -w https://github.com/pallets/flask --skip-rag --max-files 20 --fast
 
 # With auto model selection
-python auditor_slm.py --workspace /path/to/your/project --auto-tune
+dockdesk audit --workspace /path/to/your/project --auto-tune
 
 # See all options
-python auditor_slm.py --help
+dockdesk --help
 ```
 
 ---
@@ -117,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run DockDesk
-        uses: dockdesk/auditor@v2
+        uses: srivatsa-source/dockdesk@main
         with:
           model: qwen2.5-coder:3b
           fail_on_risk: HIGH
@@ -139,7 +146,7 @@ See `.github/workflows/dockdesk-example.yml` for advanced options including:
 
 ```bash
 # Generate SARIF format for VS Code
-python auditor_slm.py --format sarif --output audit.sarif
+dockdesk audit --format sarif --output audit.sarif
 ```
 
 Then install the SARIF Viewer extension in VS Code to see issues inline.
@@ -148,10 +155,10 @@ Then install the SARIF Viewer extension in VS Code to see issues inline.
 
 ```bash
 # Apply documentation fixes automatically
-python auditor_slm.py --fix
+dockdesk audit --fix
 
 # Preview what would be fixed (dry run)
-python auditor_slm.py --fix --verbose
+dockdesk audit --fix --verbose
 ```
 
 ---
@@ -162,7 +169,7 @@ Visualize your audit history:
 
 ### 7.1 Export Data
 ```bash
-python auditor_slm.py dashboard --export dashboard_data.json
+dockdesk dashboard --export dashboard_data.json
 ```
 
 ### 7.2 Run Dashboard Locally
@@ -200,7 +207,7 @@ enable_changelog: true
 ## CLI Reference
 
 ```
-Usage: auditor_slm.py [OPTIONS] [COMMAND]
+Usage: dockdesk [COMMAND] [OPTIONS]
 
 Commands:
   audit         Run semantic audit (default)
@@ -209,7 +216,7 @@ Commands:
   dashboard     View/export audit statistics
 
 Options:
-  --workspace, -w PATH    Workspace to audit (default: .)
+  --workspace, -w PATH    Workspace to audit (local path or git URL)
   --model, -m MODEL       Ollama model to use
   --auto-tune             Auto-select model by LOC
   --fix                   Apply documentation fixes
@@ -219,6 +226,8 @@ Options:
   --ci                    CI mode (non-interactive)
   --fail-on-risk LEVEL    Fail threshold: HIGH, MEDIUM, LOW
   --skip-rag              Skip RAG for faster audits
+  --turbo                 Turbo mode (fast + parallel + skip-rag)
+  --keep-clone            Keep temp git clone after audit
   --verbose, -v           Verbose output
 ```
 
@@ -254,7 +263,7 @@ ollama serve
 
 ## Next Steps
 
-1. ⭐ Star the repo: https://github.com/dockdesk/auditor
+1. Star the repo: https://github.com/srivatsa-source/dockdesk
 2. 📖 Read the full documentation
 3. 🐛 Report issues on GitHub
 4. 💬 Join our Discord community

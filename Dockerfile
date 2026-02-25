@@ -34,7 +34,7 @@ COPY dockdesk/ dockdesk/
 COPY auditor_slm.py .
 
 # Install dockdesk as a package
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
 
 # The target repo gets mounted here
 WORKDIR /workspace

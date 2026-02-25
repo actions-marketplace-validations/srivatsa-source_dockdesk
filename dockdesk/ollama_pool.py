@@ -3,6 +3,7 @@ OllamaPool — Distributed Ollama inference across multiple endpoints.
 
 Supports round-robin load distribution across N Ollama instances.
 Falls back to single localhost if no URLs configured.
+Caches ChatOllama instances to avoid HTTP client re-creation overhead.
 
 Usage:
     pool = OllamaPool(["http://gpu1:11434", "http://gpu2:11434"])
@@ -12,7 +13,7 @@ Usage:
 import os
 import itertools
 import threading
-from typing import List, Optional
+from typing import List, Optional, Dict, Tuple, Any
 from rich.console import Console
 from langchain_ollama import ChatOllama
 
@@ -24,11 +25,12 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 class OllamaPool:
     """Round-robin pool of Ollama endpoints for distributed inference."""
 
-    def __init__(self, urls: Optional[List[str]] = None):
+    def __init__(self, urls: Optional[List[str]] = None, run_health_check: bool = True):
         """
         Args:
             urls: List of Ollama base URLs. If None, reads from OLLAMA_URLS env
                   or falls back to localhost:11434.
+            run_health_check: If True, ping endpoints on init and prune dead ones.
         """
         if urls is None:
             env_urls = os.environ.get("OLLAMA_URLS", "")
@@ -39,9 +41,18 @@ class OllamaPool:
                 urls = [os.environ.get("OLLAMA_HOST", DEFAULT_OLLAMA_URL)]
 
         self._urls = urls or [DEFAULT_OLLAMA_URL]
-        self._cycle = itertools.cycle(self._urls)
         self._lock = threading.Lock()
         self._healthy: List[str] = list(self._urls)  # assume all healthy initially
+
+        # LLM instance cache: (url, model, num_predict, num_ctx) → ChatOllama
+        self._llm_cache: Dict[Tuple[str, str, int, int], ChatOllama] = {}
+        self._cache_lock = threading.Lock()
+
+        # Run health check on init to prune dead endpoints
+        if run_health_check and len(self._urls) > 1:
+            self.health_check()
+
+        self._cycle = itertools.cycle(self._healthy)
 
     @property
     def size(self) -> int:
@@ -71,6 +82,8 @@ class OllamaPool:
             except Exception:
                 console.print(f"[yellow]⚠ Ollama endpoint unreachable: {url}[/yellow]")
         self._healthy = healthy if healthy else self._urls  # fallback to all if none responded
+        # Rebuild cycle with only healthy endpoints
+        self._cycle = itertools.cycle(self._healthy)
         return self._healthy
 
     def get_llm(
@@ -84,9 +97,18 @@ class OllamaPool:
         """
         Get a ChatOllama instance pointed at the next available endpoint.
         Thread-safe — can be called from multiple workers simultaneously.
+        Instances are cached by (url, model, num_predict, num_ctx) to avoid
+        HTTP client re-creation overhead (~100-300ms per new instance).
         """
         url = self._next_url()
-        return ChatOllama(
+        cache_key = (url, model, num_predict, num_ctx)
+
+        with self._cache_lock:
+            if cache_key in self._llm_cache:
+                return self._llm_cache[cache_key]
+
+        # Create outside lock to avoid blocking other threads
+        llm = ChatOllama(
             model=model,
             temperature=temperature,
             num_predict=num_predict,
@@ -95,7 +117,13 @@ class OllamaPool:
             **kwargs,
         )
 
-    def optimal_workers(self, base: int = 2) -> int:
+        with self._cache_lock:
+            # Double-check: another thread may have created it
+            if cache_key not in self._llm_cache:
+                self._llm_cache[cache_key] = llm
+            return self._llm_cache[cache_key]
+
+    def optimal_workers(self, base: int = 4) -> int:
         """
         Suggest optimal worker count based on pool size.
         Each Ollama instance can handle ~1-2 concurrent requests efficiently.
