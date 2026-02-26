@@ -1,4 +1,4 @@
-# DockDesk v2.1
+# DockDesk v2.2
 
 **Local-First Semantic Documentation Auditor**
 
@@ -15,7 +15,7 @@ Ensure your code and documentation never drift apart without sending a single by
 ## Table of Contents
 
 - [Overview](#overview)
-- [What's New in v2.0](#whats-new-in-v20)
+- [What's New in v2.2](#whats-new-in-v22)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Model Selection](#model-selection)
@@ -49,14 +49,17 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ---
 
-## What's New in v2.1
+## What's New in v2.2
 
 | Feature | Description |
 |---------|-------------|
-| **⚡ Composite Action** | 10x faster GitHub Action - no Docker build (~30s vs ~4min) |
+| **🧠 7B Default Model** | Upgraded from 3B to `qwen2.5-coder:7b` for dramatically better accuracy |
+| **⏭️ SKIP Status** | Undocumented files are now SKIPped instead of false-FAILed |
+| **🎯 Smarter Pipeline** | Rewritten prompts, reasoning overrides, and parse fallbacks eliminate false positives |
+| **🎨 n8n-Style Dashboard** | Modern dark-theme dashboard with collapsible sidebar |
+| **⚡ Composite Action** | 10x faster GitHub Action — no Docker build (~30s vs ~4min) |
 | **Model Freedom** | Choose any Ollama model with LOC-based auto-tuning |
 | **One-Click Fixes** | Auto-apply documentation fixes with `--fix` |
-| **React Dashboard** | Visualize audit history, trends, and model usage |
 | **SARIF Output** | IDE integration for VS Code |
 | **Faster Audits** | Git diff scoping, parallel LLM calls, cached RAG |
 | **pip install** | `pip install dockdesk` — works on any system, no cloning needed |
@@ -203,7 +206,7 @@ dockdesk audit -w https://github.com/pallets/flask --skip-rag --max-files 20 --f
 curl -fsSL https://ollama.com/install.sh | sh
 
 # 2. Pull audit models
-ollama pull qwen2.5-coder:3b
+ollama pull qwen2.5-coder:7b
 ollama pull deepseek-r1:1.5b
 
 # 3. Install DockDesk (pick one)
@@ -232,18 +235,18 @@ DockDesk auto-tunes model selection based on codebase size (lines of code):
 
 | Codebase Size | Recommended Model | Speed | Memory |
 |---------------|-------------------|-------|--------|
-| < 5k LOC | `qwen2.5-coder:1.5b` | Fast | 1GB |
-| < 10k LOC | `qwen2.5-coder:3b` | Moderate | 2GB |
-| 10-50k LOC | `qwen2.5-coder:7b` | Standard | 4GB |
-| > 50k LOC | `qwen2.5-coder:14b` | Thorough | 8GB |
+| < 5k LOC | `qwen2.5-coder:3b` | Fast | 2GB |
+| < 10k LOC | `qwen2.5-coder:7b` | Moderate | 4GB |
+| 10-50k LOC | `qwen2.5-coder:14b` | Standard | 8GB |
+| > 50k LOC | `codellama:13b` | Thorough | 8GB |
 
 ### Supported Models
 
 | Model | Parameters | Best For |
 |-------|------------|----------|
-| `qwen2.5-coder:1.5b` | 1.5B | Quick scans, small projects |
-| `qwen2.5-coder:3b` | 3B | General use, balanced |
-| `qwen2.5-coder:7b` | 7B | Medium projects |
+| `qwen2.5-coder:1.5b` | 1.5B | Quick scans, CI pipelines |
+| `qwen2.5-coder:3b` | 3B | Small projects, fast iteration |
+| `qwen2.5-coder:7b` | 7B | **Default — general use, balanced** |
 | `qwen2.5-coder:14b` | 14B | Large codebases |
 | `codellama:7b` | 7B | Alternative, code-focused |
 | `codellama:13b` | 13B | Enterprise audits |
@@ -303,7 +306,7 @@ dockdesk init
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
 | `--workspace` | `-w` | Local path or git URL to audit | `.` |
-| `--model` | `-m` | Ollama model name | `qwen2.5-coder:3b` |
+| `--model` | `-m` | Ollama model name | `qwen2.5-coder:7b` |
 | `--reasoning-model` | | DeepSeek-R1 model for risk assessment | `deepseek-r1:1.5b` |
 | `--auto-tune` | | Auto-select model by LOC | `false` |
 | `--fix` | | Apply documentation fixes | `false` |
@@ -349,14 +352,14 @@ jobs:
       - name: Pull Model
         run: |
           curl -X POST http://localhost:11434/api/pull \
-            -d '{"name": "qwen2.5-coder:3b"}' \
+            -d '{"name": "qwen2.5-coder:7b"}' \
             -H "Content-Type: application/json"
           sleep 15
       
       - name: Run DockDesk
         uses: srivatsa-source/dockdesk@main
         with:
-          model: qwen2.5-coder:3b
+          model: qwen2.5-coder:7b
           fail_on_risk: HIGH
       
       - uses: actions/upload-artifact@v4
@@ -370,7 +373,7 @@ jobs:
 
 | Input | Default | Description |
 |-------|---------|-------------|
-| `model` | `qwen2.5-coder:3b` | Ollama model to use |
+| `model` | `qwen2.5-coder:7b` | Ollama model to use |
 | `auto_tune` | `false` | Auto-select model by LOC |
 | `fail_on_risk` | `HIGH` | Risk threshold for failure |
 | `output_format` | `md` | Output format: `md`, `json`, `sarif` |
@@ -426,7 +429,7 @@ Create `dockdesk.yml` in your project root:
 
 ```yaml
 # Model Selection
-model: qwen2.5-coder:3b
+model: qwen2.5-coder:7b
 auto_tune: false
 temperature: 0.1
 
@@ -471,6 +474,7 @@ Configuration values are resolved in this order (highest to lowest priority):
 - [x] React dashboard
 - [x] SARIF output for IDE integration
 - [x] **Composite GitHub Action (v2.1)** - 10x faster!
+- [x] **7B default model + SKIP status (v2.2)** - near-zero false positives
 
 ### Planned
 

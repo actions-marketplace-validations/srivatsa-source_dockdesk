@@ -26,7 +26,7 @@ console = Console(highlight=False)
 # ── Recommended models ────────────────────────────────────────────────
 RECOMMENDED_MODELS: List[Tuple[str, str, str]] = [
     # (model_name, description, approx_size)
-    ("qwen2.5-coder:3b", "Code audit model (recommended default)", "~2 GB"),
+    ("qwen2.5-coder:7b", "Code audit model (recommended default)", "~4.5 GB"),
     ("deepseek-r1:1.5b", "Reasoning model for risk assessment", "~1 GB"),
 ]
 

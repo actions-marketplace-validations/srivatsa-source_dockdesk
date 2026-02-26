@@ -10,14 +10,13 @@ inputs:
     description: |
       Default LLM model (used for both detection and fix if dedicated models are not set).
       Recommended audit-suitable models:
-        - qwen2.5-coder:1.5b (fastest, <5k LOC)
-        - qwen2.5-coder:3b (default, <10k LOC)
-        - qwen2.5-coder:7b (balanced, 10-50k LOC)
-        - codellama:7b (alternative, 10-50k LOC)
+        - qwen2.5-coder:3b (fast, <5k LOC)
+        - qwen2.5-coder:7b (default, balanced)
+        - codellama:7b (alternative, code-focused)
         - qwen2.5-coder:14b (thorough, >50k LOC)
       Use 'auto' for automatic selection based on codebase size.
     required: false
-    default: 'qwen2.5-coder:3b'
+    default: 'qwen2.5-coder:7b'
   
   detect_model:
     description: |

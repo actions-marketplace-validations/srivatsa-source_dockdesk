@@ -37,7 +37,7 @@ docker run -v /path/to/repo:/workspace dockdesk audit . --fast
 
 # With docker compose (includes Ollama):
 docker compose up ollama
-docker compose exec ollama ollama pull qwen2.5-coder:3b
+docker compose exec ollama ollama pull qwen2.5-coder:7b
 docker compose run dockdesk audit . --fast
 ```
 
@@ -127,10 +127,10 @@ dockdesk audit -w /repo --auto-tune
 ```
 
 Selects model based on codebase LOC:
-- < 5K LOC → `qwen2.5-coder:1.5b` (fastest)
-- < 50K LOC → `qwen2.5-coder:3b` (balanced)
-- < 200K LOC → `qwen2.5-coder:7b` (thorough)
-- 200K+ LOC → `codellama:7b` (large-scale)
+- < 5K LOC → `qwen2.5-coder:3b` (fastest)
+- < 50K LOC → `qwen2.5-coder:7b` (balanced)
+- < 200K LOC → `qwen2.5-coder:14b` (thorough)
+- 200K+ LOC → `codellama:13b` (large-scale)
 
 ### Reasoning model
 
@@ -188,7 +188,7 @@ For repos you audit regularly, create a `dockdesk.yml` in the repo root:
 
 ```yaml
 # dockdesk.yml
-model: qwen2.5-coder:3b
+model: qwen2.5-coder:7b
 reasoning_model: deepseek-r1:1.5b
 skip_rag: true
 fast_mode: true
@@ -210,7 +210,7 @@ dockdesk audit -w /path/to/repo
 ### "Ollama is not running"
 ```bash
 ollama serve                           # Start Ollama
-ollama pull qwen2.5-coder:3b          # Pull code model
+ollama pull qwen2.5-coder:7b          # Pull code model
 ollama pull deepseek-r1:1.5b          # Pull reasoning model
 ```
 

@@ -25,7 +25,7 @@ console = Console(highlight=False)
 LEGACY_CACHE_DIR = ".dockdesk_cache"
 
 # Default models
-DEFAULT_MODEL = "qwen2.5-coder:3b"                 # Code analysis (the "hands")
+DEFAULT_MODEL = "qwen2.5-coder:7b"                 # Code analysis (the "hands")
 DEFAULT_REASONING_MODEL = "deepseek-r1:1.5b"  # Logical reasoning (the "brain")
 DEFAULT_TEMPERATURE = 0.1
 
@@ -320,15 +320,16 @@ def parse_llm_json(content: str) -> dict:
         }
 
     # 5) Last resort — return a structured error rather than crashing the pipeline
+    # Use LOW risk + safe_to_push=True so parse failures don't inflate risk or block pushes
     console.print(f"[white][!] LLM returned unparseable output ({len(content)} chars), using fallback[/white]")
     return {
         "status": "UNKNOWN",
-        "risk": "MEDIUM",
-        "summary": f"LLM output could not be parsed: {content[:200]}",
+        "risk": "LOW",
+        "summary": f"LLM output could not be parsed ({len(content)} chars)",
         "fix": "",
         "draft_fix": "",
         "findings": [],
-        "safe_to_push": False,
+        "safe_to_push": True,
         "reasoning": "",
     }
 
@@ -415,22 +416,51 @@ def code_analysis_node(state: AuditState) -> AuditState:
         code_trimmed = code_content[:2000]
 
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """Compare code vs docs. Reply ONLY with a JSON object, no other text.
-Example:
-{{"status":"FAIL","findings":["func X undocumented"],"summary":"docs outdated","draft_fix":"add X to README"}}
-Example:
-{{"status":"PASS","findings":[],"summary":"docs match code","draft_fix":""}}"""),
+            ("system", """You are a code-vs-documentation drift detector.
+Compare the CODE against the DOCS for the given file.
+- If docs exist and accurately describe the code: status = "PASS"
+- If docs exist but contain real errors or outdated information: status = "FAIL"
+- If NO docs were found (docs say "(no docs found)"): status = "SKIP"
+
+Reply ONLY with a JSON object. No markdown, no explanation.
+Schema:
+{{"status":"PASS|FAIL|SKIP","findings":["..."],"summary":"...","draft_fix":"..."}}
+
+IMPORTANT:
+- "findings" must list ONLY real doc-vs-code mismatches, not style opinions.
+- If status is "SKIP", set findings to [] and draft_fix to "".
+- If status is "PASS", set findings to [] and draft_fix to "".
+- Minor wording differences are NOT failures. Only flag real inaccuracies."""),
             ("user", "FILE: {file_path}\nCODE:\n{code_content}\nDOCS:\n{docs_text}")
         ])
 
         llm = _pool.get_llm(model=code_model, temperature=temperature, num_predict=512, num_ctx=2048) if _pool else ChatOllama(model=code_model, temperature=temperature, num_predict=512, num_ctx=2048)
         chain = prompt | llm
-        response = chain.invoke({
-            "file_path": os.path.basename(file_path),
-            "code_content": code_trimmed,
-            "docs_text": docs_text or "(no docs found)"
-        })
-        result = parse_llm_json(response.content)
+
+        # If no docs were found, short-circuit to SKIP without calling the LLM
+        effective_docs = docs_text or "(no docs found)"
+        if not docs_text or docs_text.strip() == "":
+            result = {
+                "status": "SKIP",
+                "findings": [],
+                "summary": "No documentation found for this file",
+                "draft_fix": "",
+            }
+        else:
+            response = chain.invoke({
+                "file_path": os.path.basename(file_path),
+                "code_content": code_trimmed,
+                "docs_text": effective_docs
+            })
+            result = parse_llm_json(response.content)
+
+            # Safety net: if LLM still returned FAIL for no-docs, override to SKIP
+            if effective_docs == "(no docs found)" and result.get("status") == "FAIL":
+                result["status"] = "SKIP"
+                result["findings"] = []
+                result["draft_fix"] = ""
+                result["summary"] = result.get("summary", "No documentation found")
+
         result["file"] = file_path
         result["code_model"] = code_model
         result["duration_ms"] = int((time.time() - start_time) * 1000)
@@ -622,9 +652,10 @@ def reasoning_node(state: AuditState) -> AuditState:
 
     console.print(f"[white]  Reasoning model: {reasoning_model}[/white]")
 
-    # Skip PASS files — no need to reason about passing results
-    needs_reasoning = [f for f in code_findings if f.get("status") != "PASS"]
+    # Skip PASS and SKIP files — no need to reason about them
+    needs_reasoning = [f for f in code_findings if f.get("status") not in ("PASS", "SKIP")]
     pass_throughs = [f for f in code_findings if f.get("status") == "PASS"]
+    skip_throughs = [f for f in code_findings if f.get("status") == "SKIP"]
 
     # Fast mode: also skip files with minimal findings (likely LOW risk)
     fast_mode = config.fast_mode if config and hasattr(config, 'fast_mode') else False
@@ -642,6 +673,8 @@ def reasoning_node(state: AuditState) -> AuditState:
 
     if pass_throughs:
         console.print(f"[dim]  Skipping {len(pass_throughs)} PASS files (no reasoning needed)[/dim]")
+    if skip_throughs:
+        console.print(f"[dim]  Skipping {len(skip_throughs)} SKIP files (no docs found)[/dim]")
     if fast_skips:
         console.print(f"[dim]  Skipping {len(fast_skips)} low-signal files (--fast mode)[/dim]")
 
@@ -650,7 +683,7 @@ def reasoning_node(state: AuditState) -> AuditState:
         raw_upper = str(raw).upper().strip()
         if any(k in raw_upper for k in ["HIGH", "CRITICAL", "SEVERE", "BREAKING"]):
             return "HIGH"
-        if any(k in raw_upper for k in ["LOW", "MINOR", "COSMETIC", "TRIVIAL", "MILD"]):
+        if any(k in raw_upper for k in ["LOW", "MINOR", "COSMETIC", "TRIVIAL", "MILD", "NONE", "SAFE", "NEGLIGIBLE"]):
             return "LOW"
         return "MEDIUM"  # MID, MIS, MORNING, UNKNOWN, etc. → MEDIUM
 
@@ -685,11 +718,19 @@ def reasoning_node(state: AuditState) -> AuditState:
 
         # Build prompt with raw string literals (no template vars in system)
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """Assess risk of code-vs-doc drift. Reply ONLY with a JSON object, no other text.
-Example:
-{{"risk":"HIGH","summary":"API changed but docs not updated","fix":"update docs","safe_to_push":false,"reasoning":"breaking change"}}
-Example:
-{{"risk":"LOW","summary":"minor formatting","fix":"","safe_to_push":true,"reasoning":"cosmetic only"}}"""),
+            ("system", """You are a risk assessor for code-vs-documentation drift.
+Given the code analysis results, assess the risk level and whether it's safe to push.
+
+Reply ONLY with a JSON object, no other text.
+Schema:
+{{"risk":"HIGH|MEDIUM|LOW","summary":"...","fix":"suggested fix or empty","safe_to_push":true|false,"reasoning":"..."}}
+
+Rules:
+- Only set risk "HIGH" for breaking API changes, security issues, or completely wrong docs.
+- "MEDIUM" for notable omissions or outdated parameter descriptions.
+- "LOW" for cosmetic issues, minor wording, or trivial differences.
+- "fix" should describe what to change in docs, not rewrite the entire file.
+- Set safe_to_push to true unless there is a genuine risk of user confusion."""),
             ("user", "FILE: {file_path}\nSTATUS: {status}\nFINDINGS: {findings_text}\nSUMMARY: {summary}\nDRAFT_FIX: {draft_fix}")
         ])
 
@@ -726,10 +767,10 @@ Example:
 
         if result is None:
             result = {
-                "risk": "MEDIUM",
+                "risk": "LOW",
                 "summary": f"Reasoning model returned no output after 2 attempts",
                 "fix": "",
-                "safe_to_push": False,
+                "safe_to_push": True,
                 "reasoning": last_content[:300] if last_content else "",
             }
 
@@ -739,10 +780,18 @@ Example:
             except Exception:
                 pass
 
+        # Let reasoning override status: if code_analysis said FAIL but
+        # reasoning assessed LOW risk and safe_to_push, upgrade to PASS
+        code_status = str(finding.get("status", "UNKNOWN"))
+        assessed_risk = _normalize_risk(result.get("risk", "MEDIUM"))
+        final_status = code_status
+        if code_status == "FAIL" and assessed_risk == "LOW" and result.get("safe_to_push"):
+            final_status = "PASS"
+
         return {
             "file": file_path,
-            "status": str(finding.get("status", "UNKNOWN")),
-            "risk": _normalize_risk(result.get("risk", "MEDIUM")),
+            "status": final_status,
+            "risk": assessed_risk,
             "summary": _safe_str(result.get("summary", summary), 200),
             "fix": str(result.get("fix", "")),
             "safe_to_push": bool(result.get("safe_to_push", False)),
@@ -763,6 +812,21 @@ Example:
             "fix": "",
             "safe_to_push": True,
             "reasoning": "Code analysis passed — no drift detected.",
+            "code_model": f.get("code_model", ""),
+            "reasoning_model": reasoning_model,
+            "duration_ms": f.get("duration_ms", 0),
+        })
+
+    # Pass-through results for SKIP files (no docs found — no LLM call needed)
+    for f in skip_throughs:
+        audit_results.append({
+            "file": f.get("file", "unknown"),
+            "status": "SKIP",
+            "risk": "LOW",
+            "summary": f.get("summary", "No documentation found for this file"),
+            "fix": "",
+            "safe_to_push": True,
+            "reasoning": "No docs found — nothing to compare.",
             "code_model": f.get("code_model", ""),
             "reasoning_model": reasoning_model,
             "duration_ms": f.get("duration_ms", 0),

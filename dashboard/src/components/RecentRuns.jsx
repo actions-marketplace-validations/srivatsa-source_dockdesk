@@ -1,9 +1,11 @@
+import { Clock, GitBranch, FileText, CheckCircle, XCircle, MinusCircle, Wrench } from 'lucide-react'
+
 export default function RecentRuns({ runs }) {
   if (!runs || runs.length === 0) {
     return (
-      <div className="bg-mono-card border border-mono-border p-6 retro-card">
-        <h3 className="text-sm font-bold text-white mb-4 tracking-widest">RECENT RUNS</h3>
-        <p className="text-mono-dim text-xs">No runs recorded yet.</p>
+      <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
+        <h3 className="text-sm font-semibold text-white mb-4">Recent Runs</h3>
+        <p className="text-muted text-xs">No runs recorded yet.</p>
       </div>
     )
   }
@@ -20,47 +22,63 @@ export default function RecentRuns({ runs }) {
   }
 
   return (
-    <div className="bg-mono-card border border-mono-border p-6 retro-card">
-      <h3 className="text-sm font-bold text-white mb-4 tracking-widest">RECENT RUNS</h3>
-      <div className="space-y-2">
+    <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
+      <h3 className="text-sm font-semibold text-white mb-4">Recent Runs</h3>
+      <div className="space-y-2.5">
         {runs.slice(0, 8).map((run, i) => (
           <div
             key={run.run_id || i}
-            className="border border-mono-border p-3 hover:border-white/30 transition font-mono"
+            className="bg-surface-700 rounded-lg p-3.5 hover:bg-surface-500 transition-colors"
           >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center space-x-3">
-                <span className="text-xs text-mono-dim">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2.5">
+                <span className="text-xs text-muted font-mono">
                   #{(run.run_id || '').slice(-8)}
                 </span>
                 {run.git_branch && (
-                  <span className="text-xs text-white border border-mono-border px-2 py-0.5">
-                    {run.git_branch}
+                  <span className="inline-flex items-center space-x-1 text-xs text-info bg-info-muted px-2 py-0.5 rounded-full">
+                    <GitBranch size={10} />
+                    <span>{run.git_branch}</span>
                   </span>
                 )}
               </div>
-              <span className="text-xs text-mono-dim">{formatTime(run.timestamp)}</span>
+              <span className="inline-flex items-center space-x-1 text-xs text-muted">
+                <Clock size={10} />
+                <span>{formatTime(run.timestamp)}</span>
+              </span>
             </div>
 
             <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-4">
-                <span className="text-white">
-                  PASS:{run.pass_count ?? 0}
+              <div className="flex items-center space-x-3">
+                <span className="inline-flex items-center space-x-1 text-success">
+                  <CheckCircle size={12} />
+                  <span>{run.pass_count ?? 0}</span>
                 </span>
-                <span className="text-mono-dim">
-                  FAIL:{run.fail_count ?? 0}
+                <span className="inline-flex items-center space-x-1 text-danger">
+                  <XCircle size={12} />
+                  <span>{run.fail_count ?? 0}</span>
                 </span>
+                {(run.skip_count ?? 0) > 0 && (
+                  <span className="inline-flex items-center space-x-1 text-muted">
+                    <MinusCircle size={12} />
+                    <span>{run.skip_count}</span>
+                  </span>
+                )}
                 {(run.fixes_applied ?? 0) > 0 && (
-                  <span className="text-mono-dim">
-                    FIX:{run.fixes_applied}
+                  <span className="inline-flex items-center space-x-1 text-warning">
+                    <Wrench size={12} />
+                    <span>{run.fixes_applied}</span>
                   </span>
                 )}
               </div>
 
-              <div className="flex items-center space-x-3 text-mono-dim">
-                <span>{run.files_audited ?? 0} files</span>
+              <div className="flex items-center space-x-3 text-muted">
+                <span className="inline-flex items-center space-x-1">
+                  <FileText size={10} />
+                  <span>{run.files_audited ?? 0}</span>
+                </span>
                 <span>{(run.duration_seconds ?? 0).toFixed(1)}s</span>
-                <span className="border border-mono-border px-2 py-0.5 text-xs">
+                <span className="bg-surface-400 px-2 py-0.5 rounded text-[10px] font-mono">
                   {(run.model || '').replace('qwen2.5-coder:', 'qwen:')}
                 </span>
               </div>

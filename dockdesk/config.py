@@ -44,7 +44,7 @@ class DockDeskConfig:
     
     # Core settings
     workspace: str = "."
-    model: str = "qwen2.5-coder:3b"
+    model: str = "qwen2.5-coder:7b"
     detect_model: str = ""   # Phase 1 detection model (empty = use 'model') [DEPRECATED: use reasoning_model]
     fix_model: str = ""      # Phase 2 fix-generation model (empty = use 'model') [DEPRECATED: use reasoning_model]
     reasoning_model: str = ""  # Logical reasoning model — DeepSeek-R1 (empty = use default)
@@ -281,7 +281,7 @@ def create_sample_config(workspace: str, format: str = "yaml") -> str:
 # Place this file as dockdesk.yml in your project root
 
 # Model Selection
-model: qwen2.5-coder:3b  # Use --list-models to see options
+model: qwen2.5-coder:7b  # Use --list-models to see options
 ollama_host: http://localhost:11434
 temperature: 0.1
 

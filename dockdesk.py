@@ -79,7 +79,7 @@ def print_status(workspace=None):
     if models:
         print(f"  Models:    {', '.join(models)}")
     else:
-        print("  Models:    None found — run: ollama pull qwen2.5-coder:3b")
+        print("  Models:    None found — run: ollama pull qwen2.5-coder:7b")
     
     # Check for Discord webhook
     webhook = os.environ.get("DOCKDESK_DISCORD_WEBHOOK", "")
@@ -105,7 +105,7 @@ def run_audit(extra_args=None, workspace=None):
     if not running:
         print("\n❌ Ollama is not running!")
         print("   Start it with:  ollama serve")
-        print("   Then pull a model:  ollama pull qwen2.5-coder:3b")
+        print("   Then pull a model:  ollama pull qwen2.5-coder:7b")
         return
 
     cmd = _find_auditor() + ["--workspace", workspace, "--skip-rag"]
@@ -196,7 +196,7 @@ def install_pre_push_hook(workspace=None):
 echo "🛡️  DockDesk Pre-Push Audit..."
 
 REASONING_MODEL="${{DOCKDESK_REASONING_MODEL:-deepseek-r1:1.5b}}"
-CODE_MODEL="${{DOCKDESK_MODEL:-qwen2.5-coder:3b}}"
+CODE_MODEL="${{DOCKDESK_MODEL:-qwen2.5-coder:7b}}"
 DISCORD_WEBHOOK="${{DOCKDESK_DISCORD_WEBHOOK:-}}"
 
 EXTRA_ARGS=""
@@ -269,7 +269,7 @@ def interactive_menu():
         return
 
     if choice == "1":
-        model = input("  Code model (Enter for default qwen2.5-coder:3b): ").strip()
+        model = input("  Code model (Enter for default qwen2.5-coder:7b): ").strip()
         fmt = input("  Format [md/json/sarif] (Enter for md): ").strip() or "md"
         verbose = input("  Verbose? [y/N]: ").strip().lower() == "y"
 

@@ -16,7 +16,7 @@ param(
 
     [int]$MaxFiles = 50,
 
-    [string]$Model = "qwen2.5-coder:3b",
+    [string]$Model = "qwen2.5-coder:7b",
 
     [string]$ReasoningModel = "deepseek-r1:1.5b",
 

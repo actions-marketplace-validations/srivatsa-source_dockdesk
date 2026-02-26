@@ -27,7 +27,7 @@ This will:
 1. Detect your OS
 2. Check if Ollama is installed (and offer to install it if not)
 3. Start the Ollama service if it's not running
-4. Pull the recommended audit models (`qwen2.5-coder:3b` + `deepseek-r1:1.5b`)
+4. Pull the recommended audit models (`qwen2.5-coder:7b` + `deepseek-r1:1.5b`)
 
 Once setup is complete, run your first audit:
 ```bash
@@ -64,18 +64,18 @@ DockDesk works best with code-specialized models. Choose based on your needs:
 | Model | Size | Speed | Best For |
 |-------|------|-------|----------|
 | `qwen2.5-coder:1.5b` | 1GB | ⚡⚡⚡ | Quick checks, CI pipelines |
-| `qwen2.5-coder:3b` | 2GB | ⚡⚡ | **Recommended default** |
-| `qwen2.5-coder:7b` | 4GB | ⚡ | Detailed analysis |
+| `qwen2.5-coder:3b` | 2GB | ⚡⚡ | Small projects, fast iteration |
+| `qwen2.5-coder:7b` | 4GB | ⚡ | **Recommended default** |
 | `codellama:7b` | 4GB | ⚡ | Alternative option |
 | `qwen2.5-coder:14b` | 8GB | 🐢 | Enterprise thoroughness |
 
 ### Pull Your Chosen Model
 ```bash
 # Recommended for most projects
-ollama pull qwen2.5-coder:3b
-
-# Or for larger codebases
 ollama pull qwen2.5-coder:7b
+
+# Or for smaller machines
+ollama pull qwen2.5-coder:3b
 ```
 
 ### Let DockDesk Choose (Auto-Tune)
@@ -150,7 +150,7 @@ jobs:
       - name: Run DockDesk
         uses: srivatsa-source/dockdesk@main
         with:
-          model: qwen2.5-coder:3b
+          model: qwen2.5-coder:7b
           fail_on_risk: HIGH
 ```
 
@@ -218,7 +218,7 @@ Create `dockdesk.yml` in your project root:
 
 ```yaml
 # DockDesk Configuration
-model: qwen2.5-coder:3b
+model: qwen2.5-coder:7b
 auto_tune: false
 auto_fix: false
 fail_on_risk: HIGH

@@ -3,39 +3,17 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #000000;
-  color: #d4d4d4;
-}
-
-/* CRT scanline overlay */
-#root::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 9999;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(255, 255, 255, 0.015) 2px,
-    rgba(255, 255, 255, 0.015) 4px
-  );
-}
-
-/* Subtle CRT glow */
-#root {
-  text-shadow: 0 0 1px rgba(255, 255, 255, 0.05);
+  background-color: #0e0e20;
+  color: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom scrollbar */
@@ -44,34 +22,30 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #000;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 0;
+  background: rgba(100, 116, 139, 0.3);
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: rgba(100, 116, 139, 0.5);
 }
 
-/* Retro blinking cursor for loading */
-@keyframes blink {
+/* Pulse animation for live status */
+@keyframes pulse-dot {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  50% { opacity: 0.4; }
 }
-.cursor-blink {
-  animation: blink 1s step-end infinite;
-}
-
-/* Mono table styles */
-table {
-  font-family: 'JetBrains Mono', monospace;
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
 }
 
-/* Retro card glow on hover */
-.retro-card {
-  transition: border-color 0.2s ease;
+/* Card hover lift */
+.card-hover {
+  transition: transform 150ms ease, box-shadow 150ms ease;
 }
-.retro-card:hover {
-  border-color: #555 !important;
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }

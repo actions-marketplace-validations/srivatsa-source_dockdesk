@@ -1,56 +1,74 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 
+const RISK_COLORS = {
+  HIGH: '#ef4444',
+  MEDIUM: '#f59e0b',
+  LOW: '#10b981',
+}
+
+const CustomTooltip = ({ active, payload }) => {
+  if (!active || !payload || !payload.length) return null
+  const d = payload[0]
+  return (
+    <div className="bg-surface-800 border border-white/10 rounded-lg px-3 py-2 shadow-lg text-xs">
+      <p className="font-medium" style={{ color: d.payload.color }}>{d.name}</p>
+      <p className="text-white">{d.value} issues ({d.payload.percent}%)</p>
+    </div>
+  )
+}
+
 export default function RiskChart({ riskTotals }) {
   if (!riskTotals) return null
 
+  const total = (riskTotals.HIGH || 0) + (riskTotals.MEDIUM || 0) + (riskTotals.LOW || 0) || 1
+
   const data = [
-    { name: 'HIGH', value: riskTotals.HIGH || 0, color: '#ffffff' },
-    { name: 'MEDIUM', value: riskTotals.MEDIUM || 0, color: '#888888' },
-    { name: 'LOW', value: riskTotals.LOW || 0, color: '#444444' },
+    { name: 'High', value: riskTotals.HIGH || 0, color: RISK_COLORS.HIGH, percent: Math.round(((riskTotals.HIGH || 0) / total) * 100) },
+    { name: 'Medium', value: riskTotals.MEDIUM || 0, color: RISK_COLORS.MEDIUM, percent: Math.round(((riskTotals.MEDIUM || 0) / total) * 100) },
+    { name: 'Low', value: riskTotals.LOW || 0, color: RISK_COLORS.LOW, percent: Math.round(((riskTotals.LOW || 0) / total) * 100) },
   ]
 
-  const total = data.reduce((sum, item) => sum + item.value, 0) || 1
-
   return (
-    <div className="bg-mono-card border border-mono-border p-6 retro-card">
-      <h3 className="text-sm font-bold text-white mb-4 tracking-widest">RISK DISTRIBUTION</h3>
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={45}
-              outerRadius={65}
-              paddingAngle={3}
-              dataKey="value"
-              stroke="#000"
-              strokeWidth={2}
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #333', color: '#d4d4d4', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px' }}
-              formatter={(value, name) => [`${value} (${((value/total)*100).toFixed(0)}%)`, name]}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-4 text-center font-mono">
-        <div>
-          <div className="text-2xl font-bold text-white">{riskTotals.HIGH || 0}</div>
-          <div className="text-xs text-mono-dim">HIGH</div>
+    <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
+      <h3 className="text-sm font-semibold text-white mb-4">Risk Distribution</h3>
+      <div className="flex items-center">
+        <div className="w-44 h-44">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                cx="50%"
+                cy="50%"
+                innerRadius={48}
+                outerRadius={68}
+                paddingAngle={4}
+                dataKey="value"
+                stroke="none"
+                animationBegin={0}
+                animationDuration={800}
+              >
+                {data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-        <div>
-          <div className="text-2xl font-bold text-mono-dim">{riskTotals.MEDIUM || 0}</div>
-          <div className="text-xs text-mono-dim">MED</div>
-        </div>
-        <div>
-          <div className="text-2xl font-bold" style={{color: '#444'}}>{riskTotals.LOW || 0}</div>
-          <div className="text-xs text-mono-dim">LOW</div>
+
+        <div className="flex-1 space-y-3 ml-4">
+          {data.map((item) => (
+            <div key={item.name} className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                <span className="text-sm text-muted">{item.name}</span>
+              </div>
+              <div className="flex items-center space-x-3">
+                <span className="text-sm font-semibold text-white">{item.value}</span>
+                <span className="text-xs text-muted w-10 text-right">{item.percent}%</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -1,47 +1,65 @@
+import { FileText, CheckCircle, Wrench, Clock } from 'lucide-react'
+
 export default function StatsCards({ stats }) {
   if (!stats) return null
-  
+
   const cards = [
     {
-      label: 'AUDITS',
+      label: 'Total Audits',
       value: stats.total_audits ?? 0,
-      symbol: '[#]',
-      sub: 'total runs completed'
+      icon: CheckCircle,
+      color: 'text-info',
+      bg: 'bg-info-muted',
+      sub: 'runs completed',
     },
     {
-      label: 'FILES',
+      label: 'Files Analyzed',
       value: (stats.total_files_audited ?? 0).toLocaleString(),
-      symbol: '[>]',
-      sub: 'files analyzed'
+      icon: FileText,
+      color: 'text-success',
+      bg: 'bg-success-muted',
+      sub: 'across all audits',
     },
     {
-      label: 'FIXES',
+      label: 'Fixes Applied',
       value: stats.total_fixes_applied ?? 0,
-      symbol: '[~]',
-      sub: 'auto-applied'
+      icon: Wrench,
+      color: 'text-warning',
+      bg: 'bg-warning-muted',
+      sub: 'auto-corrections',
     },
     {
-      label: 'AVG TIME',
+      label: 'Avg Duration',
       value: `${(stats.average_duration_seconds ?? 0).toFixed(1)}s`,
-      symbol: '[*]',
-      sub: 'per audit run'
+      icon: Clock,
+      color: 'text-accent',
+      bg: 'bg-accent-muted',
+      sub: 'per audit run',
     },
   ]
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {cards.map((card) => (
-        <div key={card.label} className="bg-mono-card border border-mono-border p-5 retro-card">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-mono-dim tracking-widest">{card.label}</p>
-              <p className="text-2xl font-bold text-white mt-1">{card.value}</p>
+      {cards.map((card) => {
+        const Icon = card.icon
+        return (
+          <div
+            key={card.label}
+            className="bg-surface-600 border border-white/5 rounded-xl p-5 card-hover cursor-default"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-muted font-medium uppercase tracking-wider">{card.label}</p>
+                <p className="text-2xl font-bold text-white mt-1.5">{card.value}</p>
+              </div>
+              <div className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center`}>
+                <Icon size={20} className={card.color} />
+              </div>
             </div>
-            <span className="text-mono-dim text-lg font-mono">{card.symbol}</span>
+            <p className="mt-3 text-xs text-muted">{card.sub}</p>
           </div>
-          <p className="mt-2 text-xs text-mono-dim">{card.sub}</p>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

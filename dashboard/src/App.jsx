@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import Sidebar from './components/Sidebar'
 import StatsCards from './components/StatsCards'
 import AuditTimeline from './components/AuditTimeline'
 import RiskChart from './components/RiskChart'
@@ -6,19 +7,14 @@ import ModelUsage from './components/ModelUsage'
 import RecentRuns from './components/RecentRuns'
 import FileResults from './components/FileResults'
 import PushSafety from './components/PushSafety'
-
-const ASCII_LOGO = `
- ____   ___   ____ _  ______  _____ ____  _  __
-|  _ \\ / _ \\ / ___| |/ /  _ \\| ____/ ___|| |/ /
-| | | | | | | |   | ' /| | | |  _| \\___ \\| ' / 
-| |_| | |_| | |___| . \\| |_| | |___ ___) | . \\ 
-|____/ \\___/ \\____|_|\\_\\____/|_____|____/|_|\\_\\
-`
+import { RefreshCw, WifiOff } from 'lucide-react'
 
 function App() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(null)
+  const [activeView, setActiveView] = useState('overview')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -46,14 +42,16 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  const mainMargin = sidebarCollapsed ? 'ml-16' : 'ml-56'
+
   if (loading && !data) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center font-mono">
+      <div className="min-h-screen bg-surface-700 flex items-center justify-center">
         <div className="text-center">
-          <pre className="text-white text-xs sm:text-sm mb-6">{ASCII_LOGO}</pre>
-          <div className="text-mono-dim text-sm">
-            <span className="cursor-blink">_</span> Initializing neural auditor...
+          <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center mx-auto mb-4">
+            <RefreshCw size={24} className="text-accent animate-spin" />
           </div>
+          <p className="text-muted text-sm">Loading audit data…</p>
         </div>
       </div>
     )
@@ -61,17 +59,17 @@ function App() {
 
   if (!data) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center font-mono">
-        <div className="text-center max-w-lg mx-auto px-6">
-          <pre className="text-white text-xs sm:text-sm mb-6">{ASCII_LOGO}</pre>
-          <h2 className="text-lg font-bold text-white mb-2">[NO DATA]</h2>
-          <p className="text-mono-dim mb-6 text-sm">Run your first audit to populate the dashboard.</p>
-          <div className="border border-mono-border p-4 text-left bg-mono-card">
-            <code className="text-white text-sm font-mono">$ py auditor_slm.py --skip-rag</code>
+      <div className="min-h-screen bg-surface-700 flex items-center justify-center">
+        <div className="text-center max-w-md mx-auto px-6">
+          <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-5">
+            <WifiOff size={28} className="text-accent" />
           </div>
-          <p className="text-mono-dim text-xs mt-4">
-            Auto-refresh: 30s interval
-          </p>
+          <h2 className="text-xl font-semibold text-white mb-2">No Audit Data</h2>
+          <p className="text-muted text-sm mb-6">Run your first audit to see results here.</p>
+          <div className="bg-surface-800 rounded-xl p-4 text-left border border-white/5">
+            <code className="text-accent text-sm font-mono">$ dockdesk audit --workspace /path/to/project</code>
+          </div>
+          <p className="text-muted text-xs mt-4">Auto-refreshes every 30 seconds</p>
         </div>
       </div>
     )
@@ -79,71 +77,93 @@ function App() {
 
   const { stats, timeline, recent_runs, dual_model, latest_run_files } = data
 
-  return (
-    <div className="min-h-screen bg-black font-mono">
-      {/* Header */}
-      <header className="bg-black border-b border-mono-border">
-        <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <span className="text-white font-bold text-lg tracking-wider">[ DOCKDESK ]</span>
-              <div className="hidden sm:block">
-                <p className="text-xs text-mono-dim">
-                  DUAL-MODEL AUDIT SYSTEM
-                  {dual_model && (
-                    <span className="ml-2 text-white">
-                      // {dual_model.code_model} + {dual_model.reasoning_model}
-                    </span>
-                  )}
-                </p>
-              </div>
+  const renderContent = () => {
+    switch (activeView) {
+      case 'files':
+        return <FileResults files={latest_run_files || []} />
+      case 'timeline':
+        return <AuditTimeline timeline={timeline || []} />
+      case 'safety':
+        return <PushSafety files={latest_run_files || []} />
+      case 'models':
+        return <ModelUsage modelUsage={stats?.model_usage || {}} />
+      case 'runs':
+        return <RecentRuns runs={recent_runs || []} />
+      case 'overview':
+      default:
+        return (
+          <div className="space-y-6">
+            <StatsCards stats={stats} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <PushSafety files={latest_run_files || []} />
+              <RiskChart riskTotals={stats?.risk_totals || { HIGH: 0, MEDIUM: 0, LOW: 0 }} />
             </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={loadData}
-                className="text-mono-dim hover:text-white transition text-xs border border-mono-border px-3 py-1 hover:border-white"
-                title="Refresh data"
-              >
-                {loading ? '...' : '[REFRESH]'}
-              </button>
-              {lastRefresh && (
-                <span className="text-xs text-mono-dim">
-                  {lastRefresh.toLocaleTimeString()}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AuditTimeline timeline={timeline || []} />
+              <ModelUsage modelUsage={stats?.model_usage || {}} />
+            </div>
+            {latest_run_files && latest_run_files.length > 0 && (
+              <FileResults files={latest_run_files} />
+            )}
+            <RecentRuns runs={recent_runs || []} />
+          </div>
+        )
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-surface-700">
+      <Sidebar
+        activeView={activeView}
+        onNavigate={setActiveView}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+
+      <div className={`${mainMargin} transition-all duration-300`}>
+        {/* Top bar */}
+        <header className="sticky top-0 z-20 bg-surface-700/80 backdrop-blur-md border-b border-white/5">
+          <div className="flex items-center justify-between px-6 h-14">
+            <div className="flex items-center space-x-3">
+              <h1 className="text-sm font-medium text-white capitalize">
+                {activeView === 'overview' ? 'Dashboard' : activeView.replace('-', ' ')}
+              </h1>
+              {dual_model && (
+                <span className="text-xs text-muted bg-white/5 px-2.5 py-1 rounded-full">
+                  {dual_model.code_model} + {dual_model.reasoning_model}
                 </span>
               )}
             </div>
+
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-1.5 text-xs text-muted">
+                <span className="w-1.5 h-1.5 rounded-full bg-success pulse-dot" />
+                <span>Live</span>
+              </div>
+
+              {lastRefresh && (
+                <span className="text-xs text-muted">
+                  {lastRefresh.toLocaleTimeString()}
+                </span>
+              )}
+
+              <button
+                onClick={loadData}
+                disabled={loading}
+                className="flex items-center space-x-1.5 text-xs text-muted hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition"
+              >
+                <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                <span>Refresh</span>
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-        <StatsCards stats={stats} />
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <PushSafety files={latest_run_files || []} />
-          <RiskChart riskTotals={stats?.risk_totals || { HIGH: 0, MEDIUM: 0, LOW: 0 }} />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <AuditTimeline timeline={timeline || []} />
-          <ModelUsage modelUsage={stats?.model_usage || {}} />
-        </div>
-
-        {latest_run_files && latest_run_files.length > 0 && (
-          <FileResults files={latest_run_files} />
-        )}
-
-        <RecentRuns runs={recent_runs || []} />
-      </main>
-
-      <footer className="bg-black border-t border-mono-border mt-8">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <p className="text-center text-mono-dim text-xs">
-            DOCKDESK v2.0 // DUAL-MODEL AUDITOR // QWEN CODER + DEEPSEEK-R1
-          </p>
-        </div>
-      </footer>
+        {/* Content */}
+        <main className="p-6">
+          {renderContent()}
+        </main>
+      </div>
     </div>
   )
 }

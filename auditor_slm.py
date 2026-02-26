@@ -416,7 +416,7 @@ def add_audit_args(parser):
     """Add audit-related arguments to a parser."""
     # Core options
     parser.add_argument("--workspace", "-w", default=".", help="Workspace path to audit")
-    parser.add_argument("--model", "-m", default=None, help="Ollama model to use (default: qwen2.5-coder:3b)")
+    parser.add_argument("--model", "-m", default=None, help="Ollama model to use (default: qwen2.5-coder:7b)")
     parser.add_argument("--detect-model", default=None,
                        help="[DEPRECATED] Use --reasoning-model. Model for code detection (default: same as --model)")
     parser.add_argument("--fix-model", default=None,

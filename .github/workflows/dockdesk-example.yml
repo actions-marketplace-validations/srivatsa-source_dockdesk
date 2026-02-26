@@ -22,10 +22,9 @@ on:
       model:
         description: 'Ollama model to use'
         required: false
-        default: 'qwen2.5-coder:3b'
+        default: 'qwen2.5-coder:7b'
         type: choice
         options:
-          - qwen2.5-coder:1.5b
           - qwen2.5-coder:3b
           - qwen2.5-coder:7b
           - codellama:7b
@@ -70,11 +69,11 @@ jobs:
       - name: Pull Model(s)
         run: |
           # Pull the default / fix model
-          ollama pull ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+          ollama pull ${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}
           
           # If a separate detect model is configured, pull it too
           DETECT_MODEL="deepseek-r1:1.5b"
-          DEFAULT_MODEL="${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}"
+          DEFAULT_MODEL="${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}"
           if [ -n "$DETECT_MODEL" ] && [ "$DETECT_MODEL" != "$DEFAULT_MODEL" ]; then
             echo "Pulling detect model: $DETECT_MODEL"
             ollama pull "$DETECT_MODEL"
@@ -87,9 +86,9 @@ jobs:
         id: dockdesk
         uses: srivatsa-source/dockdesk@main
         with:
-          model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+          model: ${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}
           detect_model: 'deepseek-r1:1.5b'
-          fix_model: ${{ github.event.inputs.model || 'qwen2.5-coder:3b' }}
+          fix_model: ${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}
           ollama_host: ${{ github.event.inputs.ollama_host || 'http://localhost:11434' }}
           fail_on_risk: 'HIGH'
           output_format: 'md'

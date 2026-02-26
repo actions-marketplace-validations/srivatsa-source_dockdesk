@@ -62,7 +62,7 @@ class FileAuditRecord:
     run_id: str
     file_path: str
     relative_path: str
-    status: str  # PASS, FAIL
+    status: str  # PASS, FAIL, SKIP
     risk: str    # HIGH, MEDIUM, LOW
     summary: str
     has_fix: bool
@@ -154,6 +154,7 @@ class ChangelogWriter:
         # Calculate stats
         pass_count = sum(1 for r in audit_results if r.get("status") == "PASS")
         fail_count = sum(1 for r in audit_results if r.get("status") == "FAIL")
+        skip_count = sum(1 for r in audit_results if r.get("status") == "SKIP")
         
         risk_distribution = {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
         for r in audit_results:
@@ -335,6 +336,7 @@ class ChangelogReader:
                 "date": run.get("timestamp", "")[:10],
                 "pass": run.get("pass_count", 0),
                 "fail": run.get("fail_count", 0),
+                "skip": run.get("skip_count", 0),
                 "fixes": run.get("fixes_applied", 0),
                 "model": run.get("model", ""),
                 "duration": run.get("duration_seconds", 0)

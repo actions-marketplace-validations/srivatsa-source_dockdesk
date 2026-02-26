@@ -21,7 +21,7 @@ The "Neural Loop" is the core cognitive architecture of the DockDesk Integrity A
 
 ### 3. Parse (Heuristic Regex)
 **Objective:** Output Sanitation.
-- Small models (3B) often output "conversational garbage" (e.g., "Sure, here is the JSON...").
+- Small models (3B–7B) often output "conversational garbage" (e.g., "Sure, here is the JSON...").
 - The semantic parser strips markdown fences and uses regex fallbacks to extract the JSON payload even if the JSON syntax is slightly broken (e.g., unescaped newlines).
 - **Self-Healing:** If standard `json.loads` fails, the `clean_json` method scrapes specific keys (`status`, `fix`) using regex patterns.
 
