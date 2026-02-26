@@ -11,6 +11,7 @@ Usage:
     dockdesk list-models                  # Show available models
     dockdesk init --workspace /path       # Create config file
     dockdesk dashboard --workspace /path  # View audit stats
+    dockdesk setup                        # Install Ollama + pull models
 """
 
 import argparse
@@ -398,6 +399,18 @@ def init_config_cmd(args):
         f.write(config_content)
 
     console.print(f"[white][+] Created config: {config_path}[/white]")
+    console.print("[dim]Tip: Run 'dockdesk setup' to install Ollama and pull recommended models.[/dim]")
+
+
+def setup_cmd(args):
+    """Interactive Ollama setup: install Ollama and pull recommended models."""
+    from dockdesk.setup import run_setup
+
+    models = None
+    if args.models:
+        models = [m.strip() for m in args.models.split(",") if m.strip()]
+
+    run_setup(skip_install=args.skip_install, models=models)
 
 
 def dashboard_cmd(args):
@@ -508,6 +521,7 @@ Examples:
   dockdesk list-models                     # Show available models
   dockdesk init --workspace /path          # Create config file
   dockdesk dashboard --workspace /path     # View audit stats
+  dockdesk setup                           # Install Ollama + pull models
         """
     )
     parser.add_argument("--version", action="version", version=f"dockdesk {__version__}")
@@ -534,6 +548,14 @@ Examples:
     dash_parser.add_argument("--export", metavar="FILE", help="Export data to JSON file")
     dash_parser.set_defaults(func=dashboard_cmd)
 
+    # setup subcommand
+    setup_parser = subparsers.add_parser("setup", help="Install Ollama and pull recommended models")
+    setup_parser.add_argument("--skip-install", action="store_true",
+                              help="Skip Ollama installation check (only pull models)")
+    setup_parser.add_argument("--models", default=None, metavar="MODELS",
+                              help="Comma-separated list of models to pull (overrides defaults)")
+    setup_parser.set_defaults(func=setup_cmd)
+
     # Backward compat: audit args on root parser
     add_audit_args(parser)
 
@@ -545,6 +567,8 @@ Examples:
         init_config_cmd(args)
     elif args.command == "dashboard":
         dashboard_cmd(args)
+    elif args.command == "setup":
+        setup_cmd(args)
     else:
         run_audit(args)
 

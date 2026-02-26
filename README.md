@@ -68,54 +68,94 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 ## Architecture
 
 ```mermaid
-flowchart TB
-    subgraph INSTALL["Install (any system)"]
-        PIP["pip install dockdesk"]
-        GITHUB["pip install git+github.com/..."]
-        DOCKER["docker run dockdesk"]
-    end
-
-    subgraph INPUT["Input"]
-        LOCAL["Local repo path"]
-        GITURL["Git URL (auto-clone)"]
-    end
-
-    subgraph CORE["DockDesk Audit Pipeline"]
+flowchart LR
+    subgraph INSTALL["⬇️ &nbsp; Install"]
         direction TB
-        DISCOVER["1. Discovery\n(files, .gitignore, git-diff)"]
-        MERKLE["2. Integrity Check\n(Merkle tree / git diff)"]
-        RAG["3. RAG Context\n(ChromaDB embeddings)"]
-        CODE["4. Code Analysis\n(Qwen Coder SLM)"]
-        REASON["5. Reasoning\n(DeepSeek-R1)"]
-        REPORT["6. Reporting"]
+        PIP["<b>pip install dockdesk</b>"]
+        SETUP["dockdesk setup"]
+        PIP --> SETUP
+    end
+
+    subgraph INPUT["📂 &nbsp; Input"]
+        direction TB
+        LOCAL["Local path"]
+        GITURL["Git URL"]
+    end
+
+    INSTALL -.->|run| INPUT
+
+    subgraph PIPELINE["⚙️ &nbsp; Audit Pipeline"]
+        direction TB
+
+        DISCOVER["🔍 Discovery<br/><i>files · .gitignore · git-diff</i>"]
+        MERKLE["🔐 Integrity<br/><i>Merkle tree / diff</i>"]
+        RAG["📚 RAG Context<br/><i>ChromaDB embeddings</i>"]
+        CODE["🧠 Code Analysis<br/><i>Qwen Coder SLM</i>"]
+        REASON["💡 Reasoning<br/><i>DeepSeek-R1</i>"]
+        REPORT["📊 Report"]
+
         DISCOVER --> MERKLE --> RAG --> CODE --> REASON --> REPORT
     end
 
-    subgraph OUTPUT["Output"]
-        MD["Markdown Report"]
-        JSON["JSON"]
-        SARIF["SARIF (VS Code)"]
-        DASH["Dashboard Data"]
-        FIX["Auto-Fixes"]
-    end
-
-    subgraph CI["CI / GitHub Actions"]
-        GHA["srivatsa-source/dockdesk@main"]
-        OLLAMA_SVC["Ollama Service Container"]
-        GHA --> CORE
-        OLLAMA_SVC <--> CODE
-        OLLAMA_SVC <--> REASON
-    end
-
-    PIP & GITHUB & DOCKER --> INPUT
     LOCAL & GITURL --> DISCOVER
-    REPORT --> MD & JSON & SARIF & DASH & FIX
 
-    style INSTALL fill:#e8f5e9,stroke:#2e7d32
-    style INPUT fill:#fff3e0,stroke:#e65100
-    style CORE fill:#e1f5fe,stroke:#01579b
-    style OUTPUT fill:#fce4ec,stroke:#c2185b
-    style CI fill:#f3e5f5,stroke:#7b1fa2
+    subgraph OUTPUT["📤 &nbsp; Output"]
+        direction TB
+        MD["📝 Markdown"]
+        SARIF["🔧 SARIF"]
+        JSON["📋 JSON"]
+        FIX["✏️ Auto-Fixes"]
+        DASH["📈 Dashboard"]
+    end
+
+    REPORT --> MD & SARIF & JSON & FIX & DASH
+
+    subgraph OLLAMA["🦙 &nbsp; Ollama"]
+        direction TB
+        OL_LOCAL["localhost:11434"]
+        OL_POOL["Distributed pool"]
+    end
+
+    CODE <-->|inference| OLLAMA
+    REASON <-->|inference| OLLAMA
+
+    subgraph CICD["🤖 &nbsp; GitHub Actions"]
+        GHA["srivatsa-source/<br/>dockdesk@main"]
+    end
+
+    GHA -.->|triggers| DISCOVER
+
+    %% Styles
+    style INSTALL fill:#1a1a2e,stroke:#16213e,color:#e8f5e9,stroke-width:2px
+    style INPUT fill:#1a1a2e,stroke:#16213e,color:#fff3e0,stroke-width:2px
+    style PIPELINE fill:#0f3460,stroke:#16213e,color:#e1f5fe,stroke-width:2px
+    style OUTPUT fill:#1a1a2e,stroke:#16213e,color:#fce4ec,stroke-width:2px
+    style OLLAMA fill:#533483,stroke:#16213e,color:#f3e5f5,stroke-width:2px
+    style CICD fill:#1a1a2e,stroke:#16213e,color:#e8eaf6,stroke-width:2px
+
+    style PIP fill:#2e7d32,stroke:#1b5e20,color:#fff,rx:8
+    style SETUP fill:#388e3c,stroke:#2e7d32,color:#fff,rx:8
+    style LOCAL fill:#e65100,stroke:#bf360c,color:#fff,rx:8
+    style GITURL fill:#e65100,stroke:#bf360c,color:#fff,rx:8
+
+    style DISCOVER fill:#0277bd,stroke:#01579b,color:#fff,rx:6
+    style MERKLE fill:#0277bd,stroke:#01579b,color:#fff,rx:6
+    style RAG fill:#0277bd,stroke:#01579b,color:#fff,rx:6
+    style CODE fill:#1565c0,stroke:#0d47a1,color:#fff,rx:6
+    style REASON fill:#1565c0,stroke:#0d47a1,color:#fff,rx:6
+    style REPORT fill:#00838f,stroke:#006064,color:#fff,rx:6
+
+    style MD fill:#c62828,stroke:#b71c1c,color:#fff,rx:6
+    style SARIF fill:#c62828,stroke:#b71c1c,color:#fff,rx:6
+    style JSON fill:#c62828,stroke:#b71c1c,color:#fff,rx:6
+    style FIX fill:#c62828,stroke:#b71c1c,color:#fff,rx:6
+    style DASH fill:#c62828,stroke:#b71c1c,color:#fff,rx:6
+
+    style OL_LOCAL fill:#6a1b9a,stroke:#4a148c,color:#fff,rx:6
+    style OL_POOL fill:#6a1b9a,stroke:#4a148c,color:#fff,rx:6
+    style GHA fill:#283593,stroke:#1a237e,color:#fff,rx:6
+
+    linkStyle default stroke:#64b5f6,stroke-width:2px
 ```
 
 ### Component Overview
@@ -143,6 +183,22 @@ flowchart TB
 ### Installation
 
 ```bash
+# 1. Install DockDesk
+pip install dockdesk
+
+# 2. Interactive setup — installs Ollama and pulls recommended models
+dockdesk setup
+
+# 3. Run your first audit
+dockdesk audit --workspace /path/to/your/project
+
+# Or audit a remote repo directly
+dockdesk audit -w https://github.com/pallets/flask --skip-rag --max-files 20 --fast
+```
+
+#### Manual Setup (alternative)
+
+```bash
 # 1. Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
@@ -156,9 +212,6 @@ pip install git+https://github.com/srivatsa-source/dockdesk.git  # From GitHub
 
 # 4. Run your first audit
 dockdesk audit --workspace /path/to/your/project
-
-# Or audit a remote repo directly
-dockdesk audit -w https://github.com/pallets/flask --skip-rag --max-files 20 --fast
 ```
 
 #### Development Install

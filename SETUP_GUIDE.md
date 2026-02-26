@@ -14,6 +14,30 @@ Before starting, ensure you have:
 
 ---
 
+## Quick Setup (Recommended)
+
+The fastest way to get started — DockDesk will walk you through installing Ollama and pulling the recommended models interactively:
+
+```bash
+pip install dockdesk
+dockdesk setup
+```
+
+This will:
+1. Detect your OS
+2. Check if Ollama is installed (and offer to install it if not)
+3. Start the Ollama service if it's not running
+4. Pull the recommended audit models (`qwen2.5-coder:3b` + `deepseek-r1:1.5b`)
+
+Once setup is complete, run your first audit:
+```bash
+dockdesk audit --workspace /path/to/your/project
+```
+
+> **Prefer manual setup?** Follow the step-by-step instructions below.
+
+---
+
 ## Step 1: Install Ollama
 
 DockDesk uses Ollama for local LLM inference. Install it based on your OS:
