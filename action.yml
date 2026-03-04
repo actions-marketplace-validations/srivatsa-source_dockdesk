@@ -82,6 +82,13 @@ inputs:
     required: false
     default: 'false'
   
+  custom_rules:
+    description: |
+      Comma-separated custom audit rules injected into LLM prompts.
+      Example: "Flag hardcoded secrets,Ensure all public functions have docstrings"
+    required: false
+    default: ''
+
   python_version:
     description: 'Python version to use'
     required: false
@@ -103,6 +110,9 @@ outputs:
   fixes_applied:
     description: 'Number of fixes automatically applied'
     value: ${{ steps.audit.outputs.fixes_applied }}
+  sarif_path:
+    description: 'Path to SARIF report (for GitHub Code Scanning integration)'
+    value: ${{ steps.audit.outputs.sarif_path }}
 
 runs:
   using: 'composite'
@@ -222,6 +232,10 @@ runs:
           CLI_ARGS="$CLI_ARGS --skip-rag"
         fi
         
+        if [ -n "${{ inputs.custom_rules }}" ]; then
+          CLI_ARGS="$CLI_ARGS --rules '${{ inputs.custom_rules }}'"
+        fi
+        
         # Run the auditor via installed CLI
         dockdesk $CLI_ARGS
         
@@ -241,6 +255,13 @@ runs:
         
         echo "status=pass" >> $GITHUB_OUTPUT
         echo "fixes_applied=0" >> $GITHUB_OUTPUT
+        
+        # Generate SARIF for Code Scanning integration
+        SARIF_PATH="${WS}/audit_report.sarif"
+        dockdesk --ci --workspace "${WS}" --format sarif --output "${SARIF_PATH}" --skip-rag --model ${{ inputs.model }} 2>/dev/null || true
+        if [ -f "${SARIF_PATH}" ]; then
+          echo "sarif_path=${SARIF_PATH}" >> $GITHUB_OUTPUT
+        fi
 
     - name: Upload Audit Artifacts
       if: always()
@@ -252,6 +273,14 @@ runs:
           ${{ inputs.workspace_path }}/dashboard_data.json
           ${{ inputs.workspace_path }}/audit_history.jsonl
         retention-days: 30
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: always() && steps.audit.outputs.sarif_path != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.audit.outputs.sarif_path }}
+        category: dockdesk-audit
+      continue-on-error: true
 
     - name: Post PR Comment
       if: github.event_name == 'pull_request' && always()

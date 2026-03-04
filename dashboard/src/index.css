@@ -49,3 +49,56 @@ body {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+
+/* ── Print / PDF Export Styles ── */
+@media print {
+  body {
+    background-color: white !important;
+    color: #1a1a2e !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide sidebar, header controls, and interactive elements */
+  aside,
+  .print\\:hidden,
+  button,
+  .pulse-dot {
+    display: none !important;
+  }
+
+  /* Remove sidebar margin on main content */
+  .ml-56, .ml-16 {
+    margin-left: 0 !important;
+  }
+
+  /* Cards: white background with border */
+  [class*="bg-surface"] {
+    background-color: white !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  /* Make text dark for readability */
+  [class*="text-white"],
+  [class*="text-muted"],
+  [class*="text-accent"] {
+    color: #1a1a2e !important;
+  }
+
+  /* Page break control */
+  .grid {
+    break-inside: avoid;
+  }
+
+  /* Header for print */
+  main::before {
+    content: "DockDesk Audit Report";
+    display: block;
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: #1a1a2e;
+    border-bottom: 2px solid #6366f1;
+    padding-bottom: 8px;
+  }
+}

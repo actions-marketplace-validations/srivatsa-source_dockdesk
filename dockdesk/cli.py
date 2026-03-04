@@ -27,6 +27,8 @@ import atexit
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from rich.columns import Columns
+from rich.rule import Rule
 
 console = Console(highlight=False)
 
@@ -39,20 +41,23 @@ ASCII_BANNER = r"""
 """
 
 
-def _print_loading(skip: bool = False):
+def _print_loading(skip: bool = False, version: str = ""):
     """Print retro ASCII loading animation. Skipped in fast/CI mode."""
-    console.print("[bold white]" + ASCII_BANNER + "[/bold white]")
+    ver_tag = f"  v{version}" if version else ""
+    console.print(f"[bold cyan]{ASCII_BANNER}[/bold cyan]", end="")
+    console.print(f"[dim italic]  Semantic Code & Documentation Auditor{ver_tag}[/dim italic]")
+    console.print()
     if skip:
         return
     frames = [
-        "[dim]> Initializing neural auditor...      [/dim]",
-        "[dim]> Loading code analysis engine...      [/dim]",
-        "[dim]> Connecting to local LLM backend...   [/dim]",
-        "[dim]> System ready.                        [/dim]",
+        ("[dim cyan]  [::] Initializing neural auditor ...[/dim cyan]", 0.12),
+        ("[dim cyan]  [::] Loading code analysis engine ...[/dim cyan]", 0.12),
+        ("[dim cyan]  [::] Connecting to local LLM backend ...[/dim cyan]", 0.12),
+        ("[bold green]  [OK] System ready.[/bold green]", 0.08),
     ]
-    for frame in frames:
+    for frame, delay in frames:
         console.print(frame)
-        time.sleep(0.15)
+        time.sleep(delay)
     console.print()
 
 
@@ -156,7 +161,13 @@ def run_audit(args):
         "clear_cache": getattr(args, 'clear_cache', None),
         "respect_gitignore": not getattr(args, 'no_gitignore', False) if hasattr(args, 'no_gitignore') else None,
         "turbo": getattr(args, 'turbo', None),
+        "force_full_scan": getattr(args, 'force_full_scan', None),
     }
+
+    # Parse --rules into list
+    rules_str = getattr(args, 'rules', None)
+    if rules_str:
+        cli_args["custom_rules"] = [r.strip() for r in rules_str.split(",") if r.strip()]
 
     config = build_config(cli_args, resolved_workspace)
 
@@ -185,7 +196,8 @@ def run_audit(args):
 
     # Skip animation in fast/CI mode for ~600ms savings
     skip_animation = bool(config.fast_mode or config.ci_mode or getattr(args, 'turbo', False) or os.environ.get('CI'))
-    _print_loading(skip=skip_animation)
+    from dockdesk import __version__ as _ver
+    _print_loading(skip=skip_animation, version=_ver)
 
     if config.auto_tune:
         model, reason = auto_select_model(workspace)
@@ -209,13 +221,21 @@ def run_audit(args):
         model_info = get_model_info(model)
         model_tier = model_info.tier.value if model_info else "unknown"
 
+    # Build info lines for the startup panel
+    _scan_mode = "turbo" if config.turbo else ("fast" if config.fast_mode else "standard")
+    _rules_tag = f"  Rules: {len(config.custom_rules)} custom" if config.custom_rules else ""
+    _rag_tag = "skip-rag" if config.skip_rag else "rag"
+
     console.print(Panel.fit(
-        f"[bold white]DockDesk Dual-Model Auditor[/bold white]\n"
-        f"Workspace: {workspace}\n"
-        f"Code Agent: {model} ({model_tier})\n"
-        f"Reasoning Agent: {reasoning_model}\n"
-        f"LOC: {total_loc:,}",
-        border_style="white"
+        f"[bold cyan]DockDesk[/bold cyan] [dim]Dual-Model Auditor[/dim]\n"
+        f"\n"
+        f"[bold white]Workspace[/bold white]  {workspace}\n"
+        f"[bold white]Code[/bold white]       {model} [dim]({model_tier})[/dim]\n"
+        f"[bold white]Reasoning[/bold white]  {reasoning_model}\n"
+        f"[bold white]LOC[/bold white]        {total_loc:,}\n"
+        f"[bold white]Mode[/bold white]       {_scan_mode} | {_rag_tag}{_rules_tag}",
+        border_style="cyan",
+        padding=(0, 2),
     ))
 
     changelog = ChangelogWriter(workspace, config.changelog_file) if config.enable_changelog else None
@@ -292,7 +312,32 @@ def run_audit(args):
                 json.dump(sarif_output, f, indent=2)
             console.print(f"[white][+] SARIF report: {sarif_path}[/white]")
         else:
-            console.print(f"\n[bold white][+] Audit Complete. Report: {report_path}[/bold white]")
+            console.print()
+
+        # ── Final summary panel ──
+        _high = sum(1 for r in audit_results if r.get("risk") == "HIGH")
+        _med = sum(1 for r in audit_results if r.get("risk") == "MEDIUM")
+        _low = sum(1 for r in audit_results if r.get("risk") == "LOW")
+        _pass = sum(1 for r in audit_results if r.get("status") == "PASS")
+        _fail = sum(1 for r in audit_results if r.get("status") == "FAIL")
+        _safe = sum(1 for r in audit_results if r.get("safe_to_push") is True)
+        _unsafe = sum(1 for r in audit_results if r.get("safe_to_push") is False)
+        _verdict_color = "bold red" if _high > 0 else ("bold yellow" if _med > 0 else "bold green")
+        _verdict = "UNSAFE" if _high > 0 else ("REVIEW" if _med > 0 else "CLEAN")
+
+        console.print(Panel.fit(
+            f"[bold cyan]Audit Complete[/bold cyan]  [{_verdict_color}]{_verdict}[/{_verdict_color}]\n"
+            f"\n"
+            f"  Files: {len(audit_results)}   "
+            f"Pass: [green]{_pass}[/green]   "
+            f"Fail: [red]{_fail}[/red]\n"
+            f"  Risk:  [red]{_high} HIGH[/red]  [yellow]{_med} MED[/yellow]  [green]{_low} LOW[/green]\n"
+            f"  Push:  [green]{_safe} safe[/green]  [red]{_unsafe} blocked[/red]\n"
+            f"\n"
+            f"  Report: {report_path}",
+            border_style="green" if _high == 0 else "red",
+            padding=(0, 2),
+        ))
 
         if config.ci_mode:
             high_risk_count = sum(1 for r in audit_results if r.get("risk") == "HIGH")
@@ -308,11 +353,11 @@ def run_audit(args):
                 should_fail = fail_count > 0
 
             if should_fail:
-                console.print(f"[bold white][-] ::error::Audit failed risk threshold ({config.fail_on_risk.value})[/bold white]")
+                console.print(f"[bold red][-] CI gate failed: risk threshold exceeded ({config.fail_on_risk.value})[/bold red]")
                 sys.exit(1)
 
     except Exception as e:
-        console.print(f"[bold white][-] Audit Failed: {e}[/bold white]")
+        console.print(f"[bold red][-] Audit Failed: {e}[/bold red]")
         if args.verbose:
             import traceback
             traceback.print_exc()
@@ -434,17 +479,18 @@ def dashboard_cmd(args):
     else:
         stats = reader.get_stats_summary()
         console.print(Panel.fit(
-            f"[bold white]DockDesk Audit Statistics[/bold white]\n\n"
-            f"Total Audits: {stats.get('total_audits', 0)}\n"
-            f"Files Audited: {stats.get('total_files_audited', 0):,}\n"
-            f"Fixes Applied: {stats.get('total_fixes_applied', 0)}\n"
-            f"Avg Duration: {stats.get('average_duration_seconds', 0):.1f}s\n\n"
-            f"[dim]Risk Distribution:[/dim]\n"
-            f"  HIGH: {stats.get('risk_totals', {}).get('HIGH', 0)}\n"
-            f"  MEDIUM: {stats.get('risk_totals', {}).get('MEDIUM', 0)}\n"
-            f"  LOW: {stats.get('risk_totals', {}).get('LOW', 0)}\n\n"
-            f"[dim]Use --export <file.json> to export for React dashboard[/dim]",
-            border_style="white"
+            f"[bold cyan]DockDesk Audit Statistics[/bold cyan]\n\n"
+            f"  [bold white]Total Audits[/bold white]   {stats.get('total_audits', 0)}\n"
+            f"  [bold white]Files Audited[/bold white]  {stats.get('total_files_audited', 0):,}\n"
+            f"  [bold white]Fixes Applied[/bold white]  {stats.get('total_fixes_applied', 0)}\n"
+            f"  [bold white]Avg Duration[/bold white]   {stats.get('average_duration_seconds', 0):.1f}s\n\n"
+            f"  [dim]Risk Distribution:[/dim]\n"
+            f"    [red]HIGH[/red]   {stats.get('risk_totals', {}).get('HIGH', 0)}\n"
+            f"    [yellow]MEDIUM[/yellow] {stats.get('risk_totals', {}).get('MEDIUM', 0)}\n"
+            f"    [green]LOW[/green]    {stats.get('risk_totals', {}).get('LOW', 0)}\n\n"
+            f"  [dim]Use --export <file.json> to export for React dashboard[/dim]",
+            border_style="cyan",
+            padding=(0, 2),
         ))
 
 
@@ -501,6 +547,10 @@ def add_audit_args(parser):
                             help="Turbo mode: --fast --batch-size 8 --workers 4 --skip-rag combined")
     scale_group.add_argument("--keep-clone", action="store_true", default=False,
                             help="Keep temporary git clone after audit (when using a URL as workspace)")
+    scale_group.add_argument("--rules", default=None, metavar="RULES",
+                            help="Comma-separated custom audit rules injected into LLM prompts")
+    scale_group.add_argument("--force-full-scan", action="store_true", default=None,
+                            help="Skip git/merkle diff, audit ALL discovered files")
 
 
 def main():
