@@ -1,4 +1,4 @@
-# DockDesk v2.2
+# DockDesk v2.3
 
 **Local-First Semantic Documentation Auditor**
 
@@ -15,7 +15,7 @@ Ensure your code and documentation never drift apart without sending a single by
 ## Table of Contents
 
 - [Overview](#overview)
-- [What's New in v2.2](#whats-new-in-v22)
+- [What's New in v2.3](#whats-new-in-v23)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Model Selection](#model-selection)
@@ -49,7 +49,20 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ---
 
-## What's New in v2.2
+## What's New in v2.3
+
+| Feature | Description |
+|---------|-------------|
+| **📏 Custom Rule Engine** | `--rules` flag injects team-specific audit rules into LLM prompts |
+| **🎯 Benchmark Suite** | Golden-set test fixtures with precision/recall/F1 scoring (100% / 71% / 83%) |
+| **🎨 CLI UI Refresh** | Cyan-themed banner, color-coded results table, verdict panel (CLEAN/REVIEW/UNSAFE) |
+| **🔍 Force Full Scan** | `--force-full-scan` bypasses git/merkle diff to audit ALL files |
+| **🐞 Workspace Scoping Fix** | Git diff now correctly scopes to subdirectories |
+| **📄 SARIF Output** | `--format sarif` for IDE integration + GitHub Code Scanning |
+| **📑 PDF Export** | Dashboard "Export PDF" button via print CSS |
+| **🌳 AST-Aware RAG** | Language-specific code splitting for 20+ file types |
+
+### Previous (v2.2)
 
 | Feature | Description |
 |---------|-------------|
@@ -91,14 +104,22 @@ flowchart LR
         direction TB
 
         DISCOVER["🔍 Discovery<br/><i>files · .gitignore · git-diff</i>"]
-        MERKLE["🔐 Integrity<br/><i>Merkle tree / diff</i>"]
-        RAG["📚 RAG Context<br/><i>ChromaDB embeddings</i>"]
+        MERKLE["🔐 Integrity<br/><i>Merkle tree / diff / force-full-scan</i>"]
+        RAG["📚 RAG Context<br/><i>AST-aware splitting · ChromaDB</i>"]
         CODE["🧠 Code Analysis<br/><i>Qwen Coder SLM</i>"]
         REASON["💡 Reasoning<br/><i>DeepSeek-R1</i>"]
         REPORT["📊 Report"]
 
         DISCOVER --> MERKLE --> RAG --> CODE --> REASON --> REPORT
     end
+
+    subgraph RULES["📏 &nbsp; Custom Rules"]
+        direction TB
+        CRULES["--rules flag"]
+        CONFIG["dockdesk.yml"]
+    end
+
+    CRULES & CONFIG -.->|inject| CODE
 
     LOCAL & GITURL --> DISCOVER
 
@@ -109,9 +130,10 @@ flowchart LR
         JSON["📋 JSON"]
         FIX["✏️ Auto-Fixes"]
         DASH["📈 Dashboard"]
+        PDF["📑 PDF Export"]
     end
 
-    REPORT --> MD & SARIF & JSON & FIX & DASH
+    REPORT --> MD & SARIF & JSON & FIX & DASH & PDF
 
     subgraph OLLAMA["🦙 &nbsp; Ollama"]
         direction TB
@@ -157,6 +179,10 @@ flowchart LR
     style OL_LOCAL fill:#6a1b9a,stroke:#4a148c,color:#fff,rx:6
     style OL_POOL fill:#6a1b9a,stroke:#4a148c,color:#fff,rx:6
     style GHA fill:#283593,stroke:#1a237e,color:#fff,rx:6
+    style RULES fill:#1a1a2e,stroke:#16213e,color:#fff3e0,stroke-width:2px
+    style CRULES fill:#6a1b9a,stroke:#4a148c,color:#fff,rx:6
+    style CONFIG fill:#6a1b9a,stroke:#4a148c,color:#fff,rx:6
+    style PDF fill:#c62828,stroke:#b71c1c,color:#fff,rx:6
 
     linkStyle default stroke:#64b5f6,stroke-width:2px
 ```

@@ -41,32 +41,48 @@ class Visualizer:
     @staticmethod
     def generate_mermaid_graph(changes: List[str], risk_map: Dict[str, str]) -> str:
         """
-        Generates a Mermaid graph showing affected files and their risk levels.
+        Generates a Mermaid pipeline flowchart showing the audit flow
+        with per-file risk indicators.
         """
-        graph = ["graph TD"]
-        graph.append("    style START fill:#f9f,stroke:#333,stroke-width:2px")
-        graph.append("    START[Audit Start] --> DIFF{Changes Detected?}")
-        
-        if not changes:
-            graph.append("    DIFF -- No --> END[Pass]")
-            graph.append("    style END fill:#9f9,stroke:#333,stroke-width:4px")
-            return "\n".join(graph)
+        lines: List[str] = ["flowchart TD"]
 
-        graph.append("    DIFF -- Yes --> NODES")
-        
-        for file in changes:
-            clean_name = file.replace(".", "_").replace("/", "_").replace("\\", "_")
+        # ── Pipeline spine ──
+        lines.append("    DISCOVER[\"🔍 Discovery\"] --> INTEGRITY[\"🔐 Integrity Check\"]")
+        lines.append("    INTEGRITY --> RAG[\"📚 RAG Context\"]")
+        lines.append("    RAG --> CODE[\"🧠 Code Analysis<br/><i>Qwen Coder</i>\"]")
+        lines.append("    CODE --> REASON[\"💡 Reasoning<br/><i>DeepSeek-R1</i>\"]")
+        lines.append("    REASON --> REPORT[\"📊 Report\"]")
+
+        # ── Pipeline node styles ──
+        lines.append("    style DISCOVER fill:#0277bd,stroke:#01579b,color:#fff,rx:6")
+        lines.append("    style INTEGRITY fill:#0277bd,stroke:#01579b,color:#fff,rx:6")
+        lines.append("    style RAG fill:#0277bd,stroke:#01579b,color:#fff,rx:6")
+        lines.append("    style CODE fill:#1565c0,stroke:#0d47a1,color:#fff,rx:6")
+        lines.append("    style REASON fill:#1565c0,stroke:#0d47a1,color:#fff,rx:6")
+        lines.append("    style REPORT fill:#00838f,stroke:#006064,color:#fff,rx:6")
+
+        if not changes:
+            lines.append("    INTEGRITY -- No changes --> DONE[\"✅ Clean\"]")
+            lines.append("    style DONE fill:#2e7d32,stroke:#1b5e20,color:#fff,rx:8")
+            return "```mermaid\n" + "\n".join(lines) + "\n```"
+
+        # ── File risk nodes branching from REPORT ──
+        risk_colors = {
+            "HIGH": ("#c62828", "#b71c1c"),   # red
+            "MEDIUM": ("#f57f17", "#e65100"),  # amber
+            "LOW": ("#2e7d32", "#1b5e20"),     # green
+        }
+        for idx, file in enumerate(changes):
+            node_id = f"F{idx}"
             risk = risk_map.get(file, "UNKNOWN")
-            
-            color = "#eee"
-            if risk == "HIGH": color = "#ff9999"
-            elif risk == "MEDIUM": color = "#ffff99"
-            elif risk == "LOW": color = "#99ff99"
-            
-            graph.append(f"    NODES --> {clean_name}[{file}]")
-            graph.append(f"    style {clean_name} fill:{color},stroke:#333")
-            
-        return "```mermaid\n" + "\n".join(graph) + "\n```"
+            # Short display name
+            short = os.path.basename(file)
+            icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(risk, "⚪")
+            lines.append(f"    REPORT --> {node_id}[\"{icon} {short}<br/>{risk}\"]")
+            fill, stroke = risk_colors.get(risk, ("#616161", "#424242"))
+            lines.append(f"    style {node_id} fill:{fill},stroke:{stroke},color:#fff,rx:6")
+
+        return "```mermaid\n" + "\n".join(lines) + "\n```"
 
 class Guardrails:
     @staticmethod
