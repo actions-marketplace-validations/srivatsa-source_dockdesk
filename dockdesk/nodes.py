@@ -67,7 +67,7 @@ def _init_infrastructure(workspace: str, config=None):
 
 # Node: Discover Files (Monorepo-optimized)
 def discover_node(state: AuditState) -> AuditState:
-    console.print("[bold white]Step 1: Discovery[/bold white]")
+    console.print("[bold cyan]Step 1:[/bold cyan] [white]Discovery[/white]")
 
     config = state.get("config")
     workspace = state["workspace_path"]
@@ -95,7 +95,7 @@ def discover_node(state: AuditState) -> AuditState:
 
     # Show discovery stats
     gi_tag = " (.gitignore active)" if discovery._gitignore else ""
-    console.print(f"[dim]  Found {len(code_files)} code files, {len(docs)} doc files{gi_tag}[/dim]")
+    console.print(f"[dim]  └─ Found {len(code_files)} code files, {len(docs)} doc files{gi_tag}[/dim]")
     if max_files > 0:
         console.print(f"[dim]  max_files={max_files}[/dim]")
 
@@ -116,9 +116,28 @@ def discover_node(state: AuditState) -> AuditState:
 
 # Node: Integrity Check (Merkle Tree)
 def integrity_node(state: AuditState) -> AuditState:
-    console.print("[bold white]Step 2: Integrity Check (Git diff -> Merkle fallback)[/bold white]")
+    console.print("[bold cyan]Step 2:[/bold cyan] [white]Integrity Check[/white] [dim](Git diff → Merkle fallback)[/dim]")
 
     workspace = state["workspace_path"]
+    config = state.get("config")
+
+    # ── Force full scan: skip git/merkle, use ALL discovered files ──
+    force_full = config.force_full_scan if config and hasattr(config, 'force_full_scan') else False
+    if force_full:
+        discovered = state.get("discovered_files", [])
+        console.print(f"[dim]  └─ Force full scan: {len(discovered)} file(s)[/dim]")
+        file_contents = {}
+        max_file_size = config.max_file_size if config and hasattr(config, 'max_file_size') else 512000
+        for fpath in discovered:
+            try:
+                fsize = os.path.getsize(fpath)
+                if fsize > max_file_size:
+                    continue
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    file_contents[fpath] = f.read()
+            except Exception:
+                pass
+        return {"changed_files": discovered, "file_contents": file_contents}
 
     def _git_changed_files(ws: str) -> List[str]:
         try:
@@ -153,12 +172,23 @@ def integrity_node(state: AuditState) -> AuditState:
                 except Exception:
                     pass
 
+            # Also include untracked files so brand-new files are audited
+            try:
+                untracked = repo.git.ls_files("--others", "--exclude-standard")
+                if untracked.strip():
+                    diff_files.extend(untracked.strip().splitlines())
+            except Exception:
+                pass
+
             abs_paths = []
-            ws_abs = os.path.abspath(repo.working_tree_dir or ws)
+            repo_root = os.path.abspath(repo.working_tree_dir or ws)
+            ws_abs = os.path.abspath(ws)
             for rel in diff_files:
-                abs_p = os.path.abspath(os.path.join(ws_abs, rel))
-                if abs_p.startswith(ws_abs) and os.path.isfile(abs_p):
-                    abs_paths.append(abs_p)
+                abs_p = os.path.abspath(os.path.join(repo_root, rel))
+                # Only include files that are WITHIN the workspace directory
+                if abs_p.startswith(ws_abs + os.sep) or abs_p == ws_abs:
+                    if os.path.isfile(abs_p):
+                        abs_paths.append(abs_p)
             return abs_paths
         except Exception:
             return []
@@ -170,7 +200,11 @@ def integrity_node(state: AuditState) -> AuditState:
     file_contents = {}
 
     if git_changed:
-        console.print(f"[white]  Git diff scope: {len(git_changed)} file(s)[/white]")
+        # Intersect with discovered files to drop artifacts (.db, .jsonl, etc.)
+        discovered_set = set(os.path.normpath(f) for f in state.get("discovered_files", []))
+        if discovered_set:
+            git_changed = [f for f in git_changed if os.path.normpath(f) in discovered_set]
+        console.print(f"[dim]  └─ Git diff scope: {len(git_changed)} file(s)[/dim]")
         changed_files = git_changed
     else:
         # 2) Fallback to Merkle snapshot diff
@@ -189,7 +223,7 @@ def integrity_node(state: AuditState) -> AuditState:
         changed_files = diffs["modified"] + diffs["added"]
 
         if not changed_files and not diffs["removed"]:
-            console.print("[white]  No changes detected (Merkle snapshot matched).[/white]")
+            console.print("[dim]  └─ No changes detected (Merkle snapshot matched)[/dim]")
             return {"changed_files": [], "file_contents": {}}
 
         # Persist snapshot for next run
@@ -199,7 +233,7 @@ def integrity_node(state: AuditState) -> AuditState:
         except Exception:
             pass
 
-        console.print(f"[white]  Merkle scope: {len(changed_files)} file(s)[/white]")
+        console.print(f"[dim]  └─ Merkle scope: {len(changed_files)} file(s)[/dim]")
 
     # Load content for scoped files (lazy — only read what we need)
     config = state.get("config")
@@ -208,7 +242,7 @@ def integrity_node(state: AuditState) -> AuditState:
 
     # Enforce max_files cap
     if max_files > 0 and len(changed_files) > max_files:
-        console.print(f"[white][!] Capping {len(changed_files)} files to max_files={max_files}[/white]")
+        console.print(f"[white][!] Capping {len(changed_files)} files → max_files={max_files}[/white]")
         changed_files = changed_files[:max_files]
 
     for fpath in changed_files:
@@ -235,10 +269,10 @@ def retrieval_node(state: AuditState) -> AuditState:
     # Wire skip_rag flag
     config = state.get("config")
     if config and getattr(config, 'skip_rag', False):
-        console.print("[bold white]Step 3: RAG Retrieval[/bold white] [dim](skipped -- --skip-rag)[/dim]")
+        console.print("[bold cyan]Step 3:[/bold cyan] [white]RAG Retrieval[/white] [dim](skipped ─ --skip-rag)[/dim]")
         return {"context_data": ""}
 
-    console.print("[bold white]Step 3: RAG Retrieval[/bold white]")
+    console.print("[bold cyan]Step 3:[/bold cyan] [white]RAG Retrieval[/white]")
     retriever = CodeRetriever()
     
     documents = []
@@ -361,7 +395,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
     if not state["changed_files"]:
         return {"code_findings": []}
 
-    console.print("[bold white]Step 4: Code Analysis (Qwen Coder)[/bold white]")
+    console.print("[bold cyan]Step 4:[/bold cyan] [white]Code Analysis[/white] [dim](Qwen Coder)[/dim]")
 
     changed_files = state["changed_files"]
     context_data = state.get("context_data", "")
@@ -379,7 +413,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
         elif config.model:
             code_model = config.model
 
-    console.print(f"[white]  Code model: {code_model}[/white]")
+    console.print(f"[dim]  └─ Code model: {code_model}[/dim]")
 
     # Batch size for multi-file analysis
     batch_size = config.batch_size if config and hasattr(config, 'batch_size') else 5
@@ -395,6 +429,12 @@ def code_analysis_node(state: AuditState) -> AuditState:
     _precomputed_docs: Dict[str, List[dict]] = {}
     for fp in changed_files:
         _precomputed_docs[fp] = _select_docs_for_file(fp, state["doc_sources"], top_k=2)
+
+    # ── Build custom rules suffix for prompt injection ──
+    _custom_rules_text = ""
+    if config and hasattr(config, 'custom_rules') and config.custom_rules:
+        rules_list = "\n".join(f"  - {r}" for r in config.custom_rules)
+        _custom_rules_text = f"\n\nAdditionally, check for the following custom rules:\n{rules_list}"
 
     def _analyze_single(file_path: str) -> dict:
         start_time = time.time()
@@ -430,7 +470,7 @@ IMPORTANT:
 - "findings" must list ONLY real doc-vs-code mismatches, not style opinions.
 - If status is "SKIP", set findings to [] and draft_fix to "".
 - If status is "PASS", set findings to [] and draft_fix to "".
-- Minor wording differences are NOT failures. Only flag real inaccuracies."""),
+- Minor wording differences are NOT failures. Only flag real inaccuracies.""" + _custom_rules_text),
             ("user", "FILE: {file_path}\nCODE:\n{code_content}\nDOCS:\n{docs_text}")
         ])
 
@@ -512,7 +552,7 @@ IMPORTANT:
         prompt = ChatPromptTemplate.from_messages([
             ("system", """Compare code vs docs for each file below. Reply ONLY with a JSON array, one object per file.
 Each object: {{"file":"<filename>","status":"PASS|FAIL","findings":[],"summary":"...","draft_fix":"..."}}
-Reply ONLY with the JSON array, no other text."""),
+Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
             ("user", "{combined}")
         ])
 
@@ -621,7 +661,7 @@ Reply ONLY with the JSON array, no other text."""),
     passes = sum(1 for r in code_findings if r.get("status") == "PASS")
     fails = sum(1 for r in code_findings if r.get("status") != "PASS")
     mode_tag = "batched" if use_batching else "individual"
-    console.print(f"[dim]  Code analysis ({mode_tag}): {passes} PASS, {fails} FAIL/ERR, {cached_count} cached[/dim]")
+    console.print(f"[dim]  └─ Code analysis ({mode_tag}): [green]{passes} PASS[/green], [red]{fails} FAIL/ERR[/red], {cached_count} cached[/dim]")
 
     return {"code_findings": code_findings}
 
@@ -633,7 +673,7 @@ def reasoning_node(state: AuditState) -> AuditState:
     if not code_findings:
         return {"audit_results": []}
 
-    console.print("[bold white]Step 5: Logical Reasoning (DeepSeek-R1)[/bold white]")
+    console.print("[bold cyan]Step 5:[/bold cyan] [white]Logical Reasoning[/white] [dim](DeepSeek-R1)[/dim]")
 
     config = state.get("config")
     temperature = config.temperature if config and hasattr(config, 'temperature') else DEFAULT_TEMPERATURE
@@ -650,7 +690,7 @@ def reasoning_node(state: AuditState) -> AuditState:
     if state.get("reasoning_model"):
         reasoning_model = state["reasoning_model"]
 
-    console.print(f"[white]  Reasoning model: {reasoning_model}[/white]")
+    console.print(f"[dim]  └─ Reasoning model: {reasoning_model}[/dim]")
 
     # Skip PASS and SKIP files — no need to reason about them
     needs_reasoning = [f for f in code_findings if f.get("status") not in ("PASS", "SKIP")]
@@ -671,12 +711,18 @@ def reasoning_node(state: AuditState) -> AuditState:
                 refined.append(f)
         needs_reasoning = refined
 
+    # ── Build custom rules suffix for reasoning prompts ──
+    _reasoning_rules_text = ""
+    if config and hasattr(config, 'custom_rules') and config.custom_rules:
+        rules_list = "\n".join(f"  - {r}" for r in config.custom_rules)
+        _reasoning_rules_text = f"\n\nAdditionally, consider these custom rules when assessing risk:\n{rules_list}"
+
     if pass_throughs:
-        console.print(f"[dim]  Skipping {len(pass_throughs)} PASS files (no reasoning needed)[/dim]")
+        console.print(f"[dim]  └─ Skipping {len(pass_throughs)} PASS files (no reasoning needed)[/dim]")
     if skip_throughs:
-        console.print(f"[dim]  Skipping {len(skip_throughs)} SKIP files (no docs found)[/dim]")
+        console.print(f"[dim]  └─ Skipping {len(skip_throughs)} SKIP files (no docs found)[/dim]")
     if fast_skips:
-        console.print(f"[dim]  Skipping {len(fast_skips)} low-signal files (--fast mode)[/dim]")
+        console.print(f"[dim]  └─ Skipping {len(fast_skips)} low-signal files (--fast mode)[/dim]")
 
     def _normalize_risk(raw: str) -> str:
         """Normalize free-form risk values from small LLMs to HIGH/MEDIUM/LOW."""
@@ -730,7 +776,7 @@ Rules:
 - "MEDIUM" for notable omissions or outdated parameter descriptions.
 - "LOW" for cosmetic issues, minor wording, or trivial differences.
 - "fix" should describe what to change in docs, not rewrite the entire file.
-- Set safe_to_push to true unless there is a genuine risk of user confusion."""),
+- Set safe_to_push to true unless there is a genuine risk of user confusion.""" + _reasoning_rules_text),
             ("user", "FILE: {file_path}\nSTATUS: {status}\nFINDINGS: {findings_text}\nSUMMARY: {summary}\nDRAFT_FIX: {draft_fix}")
         ])
 
@@ -886,7 +932,7 @@ Rules:
     safe_count = sum(1 for r in audit_results if r.get("safe_to_push"))
     unsafe_count = len(audit_results) - safe_count
     high_count = sum(1 for r in audit_results if r.get("risk") == "HIGH")
-    console.print(f"[dim]  Reasoning done: {safe_count} safe, {unsafe_count} unsafe, {high_count} HIGH risk[/dim]")
+    console.print(f"[dim]  └─ Reasoning done: [green]{safe_count} safe[/green], [red]{unsafe_count} unsafe[/red], [bold red]{high_count} HIGH[/bold red] risk[/dim]")
 
     return {"audit_results": audit_results}
 
@@ -902,7 +948,7 @@ def notify_node(state: AuditState) -> AuditState:
     if not notifier.enabled:
         return {"discord_posted": False}
 
-    console.print("[bold white]Step 7: Discord Notification[/bold white]")
+    console.print("[bold cyan]Step 7:[/bold cyan] [white]Discord Notification[/white]")
 
     audit_results = state.get("audit_results", [])
     code_model = state.get("model", DEFAULT_MODEL)
@@ -919,7 +965,7 @@ def notify_node(state: AuditState) -> AuditState:
 
 # Node: Reporting
 def reporting_node(state: AuditState) -> AuditState:
-    console.print("[bold white]Step 6: Reporting[/bold white]")
+    console.print("[bold cyan]Step 6:[/bold cyan] [white]Reporting[/white]")
     
     results = state.get("audit_results", [])
     changed = state.get("changed_files", [])
@@ -955,11 +1001,11 @@ def reporting_node(state: AuditState) -> AuditState:
     model_display = f"{code_model_display} (code) / {reasoning_display} (reasoning)"
 
     # ── Rich summary table in terminal ──
-    summary_table = Table(title="Audit Results", show_lines=True, title_style="bold white", border_style="dim")
+    summary_table = Table(title="Audit Results", show_lines=True, title_style="bold cyan", border_style="dim cyan")
     summary_table.add_column("File", style="white", max_width=40)
-    summary_table.add_column("Status", justify="center", width=6, style="white")
-    summary_table.add_column("Risk", justify="center", width=8, style="white")
-    summary_table.add_column("Push?", justify="center", width=6, style="white")
+    summary_table.add_column("Status", justify="center", width=8)
+    summary_table.add_column("Risk", justify="center", width=8)
+    summary_table.add_column("Push?", justify="center", width=6)
     summary_table.add_column("Summary", style="dim", max_width=50)
 
     for res in results:
@@ -973,11 +1019,16 @@ def reporting_node(state: AuditState) -> AuditState:
             rel = "..." + rel[-37:]
 
         status = res.get("status", "?")
-        status_str = status
+        status_style_map = {"PASS": "bold green", "FAIL": "bold red", "SKIP": "dim", "ERROR": "bold yellow"}
+        status_str = f"[{status_style_map.get(status, 'white')}]{status}[/{status_style_map.get(status, 'white')}]"
+
         risk = res.get("risk", "?")
-        risk_str = {"HIGH": "[bold white]HIGH[/bold white]", "MEDIUM": "MED", "LOW": "[dim]LOW[/dim]"}.get(risk, risk)
+        risk_style_map = {"HIGH": "bold red", "MEDIUM": "bold yellow", "MED": "bold yellow", "LOW": "green"}
+        risk_label = {"HIGH": "HIGH", "MEDIUM": "MED", "MED": "MED", "LOW": "LOW"}.get(risk, risk)
+        risk_str = f"[{risk_style_map.get(risk, 'dim')}]{risk_label}[/{risk_style_map.get(risk, 'dim')}]"
+
         safe = res.get("safe_to_push")
-        safe_str = "[Y]" if safe else "[N]"
+        safe_str = "[green]✓[/green]" if safe else "[red]✗[/red]"
         summary = (res.get("summary", "") or "")[:50]
 
         summary_table.add_row(rel, status_str, risk_str, safe_str, summary)
@@ -1047,7 +1098,7 @@ def reporting_node(state: AuditState) -> AuditState:
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
     
-    console.print(f"[white][+] Report -> {report_path}[/white]")
+    console.print(f"[dim]  └─ Report → {report_path}[/dim]")
 
     # ── Auto-export dashboard data ──
     _auto_export_dashboard(workspace, results, model_name, reasoning_model)
@@ -1104,6 +1155,6 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
             except Exception:
                 pass
 
-        console.print(f"[white][+] Dashboard data -> dashboard_data.json[/white]")
+        console.print(f"[dim]  └─ Dashboard data → dashboard_data.json[/dim]")
     except Exception as e:
         console.print(f"[white][!] Dashboard export skipped: {e}[/white]")

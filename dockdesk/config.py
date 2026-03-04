@@ -87,6 +87,7 @@ class DockDeskConfig:
     ollama_urls: str = ""        # Comma-separated Ollama endpoints
     respect_gitignore: bool = True
     turbo: bool = False           # Aggressive speed mode: --fast --batch-size 8 --workers 4 --skip-rag
+    custom_rules: List[str] = field(default_factory=list)  # User-defined audit rules injected into LLM prompts
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -122,6 +123,7 @@ class DockDeskConfig:
             "ollama_urls": self.ollama_urls,
             "respect_gitignore": self.respect_gitignore,
             "turbo": self.turbo,
+            "custom_rules": self.custom_rules,
         }
 
     def get_include_list(self) -> List[str]:
@@ -160,16 +162,44 @@ def load_config_file(workspace: str) -> Dict[str, Any]:
 
 
 def _parse_simple_yaml(content: str) -> Dict[str, Any]:
-    """Basic YAML parsing for simple key: value configs."""
+    """Basic YAML parsing for simple key: value configs, with list support."""
     result = {}
-    for line in content.split('\n'):
-        line = line.strip()
-        if not line or line.startswith('#'):
+    current_key = None
+    current_list: Optional[List[str]] = None
+    lines = content.split('\n')
+    
+    for i, raw_line in enumerate(lines):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith('#'):
             continue
-        if ':' in line:
-            key, value = line.split(':', 1)
+        
+        # Check for list item (starts with '- ')
+        if stripped.startswith('- ') and current_key is not None:
+            item = stripped[2:].strip()
+            # Strip quotes
+            if (item.startswith('"') and item.endswith('"')) or (item.startswith("'") and item.endswith("'")):
+                item = item[1:-1]
+            if current_list is None:
+                current_list = []
+            current_list.append(item)
+            continue
+        
+        # Flush any accumulated list
+        if current_key is not None and current_list is not None:
+            result[current_key] = current_list
+            current_list = None
+            current_key = None
+        
+        if ':' in stripped:
+            key, value = stripped.split(':', 1)
             key = key.strip()
             value = value.strip()
+            
+            # Empty value after colon means upcoming list
+            if value == '' or value == '[]':
+                current_key = key
+                current_list = [] if value == '[]' else None
+                continue
             
             # Type conversion
             if value.lower() in ('true', 'yes'):
@@ -186,6 +216,13 @@ def _parse_simple_yaml(content: str) -> Dict[str, Any]:
                 value = value[1:-1]
                 
             result[key] = value
+            current_key = None
+            current_list = None
+    
+    # Flush trailing list
+    if current_key is not None and current_list is not None:
+        result[current_key] = current_list
+    
     return result
 
 
@@ -306,6 +343,12 @@ timeout_per_file: 120 # Seconds per file
 # Dashboard
 enable_changelog: true
 changelog_file: audit_history.jsonl
+
+# Custom Audit Rules (injected into LLM prompts)
+# custom_rules:
+#   - "Flag any hardcoded secrets or API keys in code"
+#   - "Ensure all public functions have docstrings"
+#   - "Check that error handling matches documentation"
 """
     else:
         return json.dumps(DockDeskConfig().to_dict(), indent=2)

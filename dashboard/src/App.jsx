@@ -7,7 +7,7 @@ import ModelUsage from './components/ModelUsage'
 import RecentRuns from './components/RecentRuns'
 import FileResults from './components/FileResults'
 import PushSafety from './components/PushSafety'
-import { RefreshCw, WifiOff } from 'lucide-react'
+import { RefreshCw, WifiOff, Download } from 'lucide-react'
 
 function App() {
   const [data, setData] = useState(null)
@@ -154,6 +154,15 @@ function App() {
               >
                 <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
                 <span>Refresh</span>
+              </button>
+
+              <button
+                onClick={() => window.print()}
+                className="flex items-center space-x-1.5 text-xs text-muted hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition print:hidden"
+                title="Export as PDF (Ctrl+P)"
+              >
+                <Download size={12} />
+                <span>Export PDF</span>
               </button>
             </div>
           </div>
