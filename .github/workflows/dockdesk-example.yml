@@ -1,0 +1,214 @@
+# =============================================================================
+# DockDesk Semantic Auditor - GitHub Actions Workflow (v4.0)
+# =============================================================================
+# This workflow runs DockDesk on every pull request to ensure documentation
+# stays in sync with code changes. Copy this file to your repository's
+# .github/workflows/ directory to enable automated semantic auditing.
+#
+# v4.0: Dual-model pipeline (detect + fix).
+#       Fixed git diff: two-dot diff + GITHUB_BASE_REF + full base fetch.
+#       Only changed files are audited — no more 20+ minute Merkle scans.
+# =============================================================================
+
+name: DockDesk Audit
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Ollama model to use'
+        required: false
+        default: 'qwen2.5-coder:7b'
+        type: choice
+        options:
+          - qwen2.5-coder:3b
+          - qwen2.5-coder:7b
+          - codellama:7b
+      ollama_host:
+        description: 'Ollama API endpoint'
+        required: false
+        default: 'http://localhost:11434'
+        type: string
+
+jobs:
+  audit:
+    name: Semantic Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Base Branch
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }}
+
+      # -----------------------------------------------------------------------
+      # Free disk space & install Ollama natively (no Docker needed)
+      # -----------------------------------------------------------------------
+      - name: Free Disk Space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+
+      - name: Install & Start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          
+          # Wait for Ollama to be ready
+          for i in {1..15}; do
+            curl -s http://localhost:11434/api/tags > /dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Pull Model(s)
+        run: |
+          # Pull the default / fix model
+          ollama pull ${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}
+          
+          # If a separate detect model is configured, pull it too
+          DETECT_MODEL="deepseek-r1:1.5b"
+          DEFAULT_MODEL="${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}"
+          if [ -n "$DETECT_MODEL" ] && [ "$DETECT_MODEL" != "$DEFAULT_MODEL" ]; then
+            echo "Pulling detect model: $DETECT_MODEL"
+            ollama pull "$DETECT_MODEL"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Run DockDesk Audit
+      # -----------------------------------------------------------------------
+      - name: Run DockDesk Audit
+        id: dockdesk
+        uses: srivatsa-source/dockdesk@main
+        with:
+          model: ${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}
+          detect_model: 'deepseek-r1:1.5b'
+          fix_model: ${{ github.event.inputs.model || 'qwen2.5-coder:7b' }}
+          ollama_host: ${{ github.event.inputs.ollama_host || 'http://localhost:11434' }}
+          fail_on_risk: 'HIGH'
+          output_format: 'md'
+          skip_rag: 'true'
+
+      # -----------------------------------------------------------------------
+      # Upload audit report as artifact
+      # -----------------------------------------------------------------------
+      - name: Upload Audit Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-report-${{ github.run_number }}
+          path: audit_report.md
+          retention-days: 90
+
+      # -----------------------------------------------------------------------
+      # Persist audit history for dashboard
+      # -----------------------------------------------------------------------
+      - name: Upload Audit History
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-history-${{ github.run_number }}
+          path: audit_history.jsonl
+          retention-days: 365
+
+      # -----------------------------------------------------------------------
+      # Comment on PR with audit summary
+      # -----------------------------------------------------------------------
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${{ github.run_id }}`;
+
+            let body = '## 🔍 DockDesk Audit Results\n\n';
+
+            // --- Read audit report ---
+            try {
+              const report = fs.readFileSync('audit_report.md', 'utf8');
+              const lines = report.split('\n').slice(0, 40);
+              body += lines.join('\n');
+            } catch (e) {
+              body += '⚠️ Could not read audit report. Check workflow logs.\n';
+            }
+
+            // --- Read audit history for stats ---
+            try {
+              const history = fs.readFileSync('audit_history.jsonl', 'utf8').trim();
+              const entries = history.split('\n').map(l => JSON.parse(l));
+              const latest = entries[entries.length - 1];
+              if (latest) {
+                const risks = latest.risk_distribution || {};
+                body += '\n\n### 📊 Audit Stats\n';
+                body += `| Metric | Value |\n|--------|-------|\n`;
+                body += `| **Model** | \`${latest.model || 'unknown'}\` |\n`;
+                body += `| **Files Audited** | ${latest.files_audited || 0} |\n`;
+                body += `| **Duration** | ${(latest.duration_seconds || 0).toFixed(1)}s |\n`;
+                body += `| **🔴 HIGH** | ${risks.HIGH || 0} |\n`;
+                body += `| **🟡 MEDIUM** | ${risks.MEDIUM || 0} |\n`;
+                body += `| **🟢 LOW** | ${risks.LOW || 0} |\n`;
+                body += `| **Fixes Applied** | ${latest.fixes_applied || 0} |\n`;
+              }
+            } catch (e) {
+              // audit_history.jsonl not available — skip stats
+            }
+
+            body += '\n\n---\n';
+            body += `📋 [Full Report](${runUrl}) · `;
+            body += `📊 View the **DockDesk Dashboard** for trends across runs`;
+
+            // --- Upsert: update existing comment or create new ---
+            const comments = await github.rest.issues.listComments({
+              owner, repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.data.find(
+              c => c.user.type === 'Bot' && c.body.includes('DockDesk Audit Results')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+# =============================================================================
+# Configuration Guide
+# =============================================================================
+#
+# No setup required! The workflow automatically:
+#   1. Frees ~6GB disk space on the runner
+#   2. Installs Ollama natively (no Docker)
+#   3. Pulls the selected model
+#   4. Runs the audit with RAG disabled (saves ~800MB)
+#
+# Model Selection by Codebase Size:
+#   - Small (<10k LOC):  qwen2.5-coder:1.5b or qwen2.5-coder:3b
+#   - Medium (10-50k):   qwen2.5-coder:7b or codellama:7b
+#   - Large (>50k):      qwen2.5-coder:14b
+#
+# Risk Thresholds:
+#   - HIGH:   Only fail on critical issues (default)
+#   - MEDIUM: Fail on moderate and critical issues
+#   - LOW:    Fail on any issue
+#
+# Dashboard:
+#   Download audit-history artifacts and run:
+#     python auditor_slm.py dashboard --export dashboard_data.json
+#
+# =============================================================================

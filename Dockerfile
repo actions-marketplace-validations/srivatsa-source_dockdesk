@@ -1,16 +1,43 @@
-# 🚀 UPGRADE: Use Python 3.11 (Fixes importlib crash)
+# ───────────────────────────────────────────────────────────
+# DockDesk - Semantic Documentation Auditor
+# ───────────────────────────────────────────────────────────
+# Build:  docker build -t dockdesk .
+# Run:    docker run -v /path/to/repo:/workspace dockdesk audit .
+#
+# Ollama must be running on the host (or a linked container).
+# The container connects to host Ollama by default.
+# ───────────────────────────────────────────────────────────
+
 FROM python:3.11-slim
 
-# Prevent Python from buffering stdout/stderr
-ENV PYTHONUNBUFFERED=1
+LABEL maintainer="DockDesk" \
+      description="Local-first semantic documentation auditor" \
+      version="2.1.0"
 
-# Install dependencies (Force latest versions)
-RUN pip install --upgrade pip
-COPY requirements.txt /app/requirements.txt
-RUN pip install -r /app/requirements.txt
+# Install git (needed for git-diff based scoping)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy your script
-COPY integrity_agent.py /app/integrity_agent.py
+# Set default Ollama host to reach the Docker host
+ENV OLLAMA_HOST=http://host.docker.internal:11434
 
-# Run it
-ENTRYPOINT ["python", "/app/integrity_agent.py"]
+WORKDIR /app
+
+# Install Python dependencies first (cache layer)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy package source
+COPY pyproject.toml .
+COPY dockdesk/ dockdesk/
+COPY auditor_slm.py .
+
+# Install dockdesk as a package
+RUN pip install --no-cache-dir .
+
+# The target repo gets mounted here
+WORKDIR /workspace
+
+ENTRYPOINT ["dockdesk"]
+CMD ["audit", "--workspace", ".", "--skip-rag"]

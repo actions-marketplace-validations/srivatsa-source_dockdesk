@@ -1,0 +1,88 @@
+# DockDesk Cross-Repo Test Suite
+# Each entry defines a repo to test against with expected characteristics.
+#
+# Fields:
+#   url:          GitHub clone URL or local path
+#   name:         Short name for display
+#   category:     small-python | medium-js | large-monorepo
+#   max_files:    Cap for --max-files during test
+#   expect_files: [min, max] — expected file count range
+#   expect_pass_rate_above: minimum PASS rate (0.0 - 1.0) to consider healthy
+#   timeout_minutes: max wall time before aborting
+#   notes:        Optional description
+
+repos:
+  # ── Small Python repos (5-20 core files) ──
+  - name: click
+    url: https://github.com/pallets/click
+    category: small-python
+    max_files: 20
+    expect_files: [10, 30]
+    expect_pass_rate_above: 0.3
+    timeout_minutes: 5
+    notes: "CLI framework, well-documented Python project"
+
+  - name: httpbin
+    url: https://github.com/psf/httpbin
+    category: small-python
+    max_files: 15
+    expect_files: [5, 20]
+    expect_pass_rate_above: 0.3
+    timeout_minutes: 5
+    notes: "HTTP request/response service, small and focused"
+
+  - name: rich-click
+    url: https://github.com/ewels/rich-click
+    category: small-python
+    max_files: 15
+    expect_files: [5, 20]
+    expect_pass_rate_above: 0.3
+    timeout_minutes: 5
+    notes: "Rich-styled click CLI, small Python project"
+
+  # ── Medium JS/TS repos (20-50 files) ──
+  - name: express
+    url: https://github.com/expressjs/express
+    category: medium-js
+    max_files: 40
+    expect_files: [20, 60]
+    expect_pass_rate_above: 0.2
+    timeout_minutes: 8
+    notes: "Node.js web framework, JS codebase"
+
+  - name: svelte-template
+    url: https://github.com/sveltejs/template
+    category: medium-js
+    max_files: 20
+    expect_files: [5, 25]
+    expect_pass_rate_above: 0.3
+    timeout_minutes: 5
+    notes: "Svelte starter template, small JS/TS project"
+
+  - name: fastify
+    url: https://github.com/fastify/fastify
+    category: medium-js
+    max_files: 40
+    expect_files: [20, 60]
+    expect_pass_rate_above: 0.2
+    timeout_minutes: 8
+    notes: "Fast Node.js web framework"
+
+  # ── Large monorepos (100+ files, tests --max-files cap) ──
+  - name: flask
+    url: https://github.com/pallets/flask
+    category: large-monorepo
+    max_files: 50
+    expect_files: [30, 100]
+    expect_pass_rate_above: 0.2
+    timeout_minutes: 10
+    notes: "Python web framework, larger codebase"
+
+  - name: fastapi
+    url: https://github.com/fastapi/fastapi
+    category: large-monorepo
+    max_files: 50
+    expect_files: [30, 200]
+    expect_pass_rate_above: 0.2
+    timeout_minutes: 10
+    notes: "Modern Python web framework, large project"

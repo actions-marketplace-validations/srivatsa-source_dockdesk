@@ -1,46 +1,282 @@
-name: 'dock-desk'
-description: 'AI Auditor that ensures Code matches Documentation.'
-author: 'Srivatsa'
+name: 'DockDesk Neural Auditor'
+description: 'Local-first semantic audit of code vs documentation using Ollama. Auto-tunes model selection for your codebase.'
+author: 'DockDesk Team'
 branding:
-  icon: 'shield'  # Options: shield, lock, check, search, eye
-  color: 'blue'   # Options: blue, green, yellow, red, purple
+  icon: 'shield'
+  color: 'green'
+
 inputs:
-  gemini_api_key:
-    description: 'API Key (Gemini)'
-    required: true
-  github_token:
-    description: 'GitHub Token for commenting'
-    required: true
-  code_file:
-    description: 'Path to code file (Leave as "AUTO" to scan PR changes)'
+  model:
+    description: |
+      Default LLM model (used for both detection and fix if dedicated models are not set).
+      Recommended audit-suitable models:
+        - qwen2.5-coder:3b (fast, <5k LOC)
+        - qwen2.5-coder:7b (default, balanced)
+        - codellama:7b (alternative, code-focused)
+        - qwen2.5-coder:14b (thorough, >50k LOC)
+      Use 'auto' for automatic selection based on codebase size.
     required: false
-    default: 'AUTO'
-  doc_file:
-    description: 'Path to doc file'
-    required: true
-  fail_on_drift:
-    description: 'Fail the workflow if drift is detected (true/false)'
+    default: 'qwen2.5-coder:7b'
+  
+  detect_model:
+    description: |
+      [DEPRECATED] Use reasoning_model instead.
+      Model for Phase 1 (detection / risk assessment).
     required: false
-    default: 'true'
+    default: ''
+  
+  fix_model:
+    description: |
+      [DEPRECATED] Use reasoning_model instead.
+      Model for Phase 2 (fix generation).
+    required: false
+    default: ''
+  
+  reasoning_model:
+    description: |
+      DeepSeek-R1 reasoning model for logical risk assessment and safety judgement.
+      Default: deepseek-r1-distill-qwen:1.5b
+      This model acts as the "brain" — it judges risk, validates fixes, and decides push safety.
+    required: false
+    default: 'deepseek-r1:1.5b'
+  
+  discord_webhook:
+    description: |
+      Discord webhook URL for posting audit summaries and push-guard notifications.
+      Leave empty to disable Discord notifications.
+    required: false
+    default: ''
+  
+  auto_tune:
+    description: 'Automatically select the best model based on codebase LOC (overrides model input)'
+    required: false
+    default: 'false'
+  
+  ollama_host:
+    description: 'Ollama API endpoint (for self-hosted instances)'
+    required: false
+    default: 'http://localhost:11434'
+  
+  fail_on_risk:
+    description: 'Risk level that triggers workflow failure (HIGH, MEDIUM, LOW)'
+    required: false
+    default: 'HIGH'
+  
+  output_format:
+    description: 'Output format: md (markdown), json, sarif (for VS Code/IDE integration)'
+    required: false
+    default: 'md'
+  
+  auto_fix:
+    description: 'Automatically apply documentation fixes'
+    required: false
+    default: 'false'
+  
+  workspace_path:
+    description: 'Path to the workspace to audit (relative to repository root)'
+    required: false
+    default: '.'
+  
+  skip_rag:
+    description: 'Skip RAG retrieval for faster audits and reduced disk usage (recommended for CI)'
+    required: false
+    default: 'false'
+  
+  python_version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+
 outputs:
-  drift_detected:
-    description: 'True if contradiction found'
-  suggested_fix:
-    description: 'The suggested fix content'
+  report_path:
+    description: 'Path to the generated audit report'
+    value: ${{ steps.audit.outputs.report_path }}
+  status:
+    description: 'Audit status (pass/fail)'
+    value: ${{ steps.audit.outputs.status }}
+  files_audited:
+    description: 'Number of files audited'
+    value: ${{ steps.audit.outputs.files_audited }}
+  high_risk_count:
+    description: 'Number of HIGH risk findings'
+    value: ${{ steps.audit.outputs.high_risk_count }}
+  fixes_applied:
+    description: 'Number of fixes automatically applied'
+    value: ${{ steps.audit.outputs.fixes_applied }}
+
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  args:
-    - --code
-    - ${{ inputs.code_file }}
-    - --doc
-    - ${{ inputs.doc_file }}
-    - --fail-on-drift
-    - ${{ inputs.fail_on_drift }}
-  env:
-    # 🚨 CRITICAL FIX: Map the input 'gemini_api_key' to the env var 'GEMINI_API_KEY'
-    # The Python script reads os.getenv("GEMINI_API_KEY"), so this must match!
-    GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
-    GITHUB_TOKEN: ${{ inputs.github_token }}
-    GITHUB_REPOSITORY: ${{ github.repository }}
-    PR_NUMBER: ${{ github.event.pull_request.number }}
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+    
+    - name: Install Dependencies
+      shell: bash
+      run: |
+        echo "[*] Installing DockDesk as package..."
+        pip install --quiet -r ${{ github.action_path }}/requirements.txt
+        pip install --quiet -e ${{ github.action_path }}
+        
+        if [ "${{ inputs.skip_rag }}" != "true" ]; then
+          echo "[*] Installing RAG dependencies (chromadb, sentence-transformers)..."
+          pip install --quiet -r ${{ github.action_path }}/requirements-rag.txt
+        else
+          echo "[>] Skipping RAG dependencies (skip_rag=true)"
+        fi
+    
+    - name: Wait for Ollama
+      shell: bash
+      env:
+        OLLAMA_HOST: ${{ inputs.ollama_host }}
+        MODEL_NAME: ${{ inputs.model }}
+        DETECT_MODEL: ${{ inputs.detect_model }}
+        FIX_MODEL: ${{ inputs.fix_model }}
+        REASONING_MODEL: ${{ inputs.reasoning_model }}
+      run: |
+        echo "[*] Connecting to Ollama at $OLLAMA_HOST..."
+        CONNECTED=false
+        for i in {1..30}; do
+          if curl -s --connect-timeout 2 "$OLLAMA_HOST/api/tags" > /dev/null 2>&1; then
+            echo "[+] Ollama service ready"
+            CONNECTED=true
+            break
+          fi
+          echo "  Waiting... ($i/30)"
+          sleep 1
+        done
+        
+        if [ "$CONNECTED" != "true" ]; then
+          echo "::error::Ollama not reachable at $OLLAMA_HOST"
+          echo "::error::Ensure Ollama is running on your self-hosted runner:"
+          echo "::error::  1. Install:  curl -fsSL https://ollama.com/install.sh | sh"
+          echo "::error::  2. Start:    ollama serve  (or: sudo systemctl start ollama)"
+          echo "::error::  3. Pull:     ollama pull $MODEL_NAME"
+          exit 1
+        fi
+        
+        # Verify all required models are available
+        check_model() {
+          local name="$1"
+          local role="$2"
+          if [ -n "$name" ] && [ "$name" != "auto" ]; then
+            echo "[?] Checking $role model '$name'..."
+            if curl -s "$OLLAMA_HOST/api/tags" | grep -q "$name"; then
+              echo "[+] $role model '$name' is available"
+            else
+              echo "::error::$role model '$name' not found on Ollama at $OLLAMA_HOST"
+              echo "::error::Pre-install: ollama pull $name"
+              curl -s "$OLLAMA_HOST/api/tags" | python3 -c "import sys,json; [print(f'  - {m[\"name\"]}') for m in json.load(sys.stdin).get('models',[])]" 2>/dev/null || true
+              exit 1
+            fi
+          fi
+        }
+        
+        check_model "$MODEL_NAME" "default"
+        check_model "$DETECT_MODEL" "detect"
+        check_model "$FIX_MODEL" "fix"
+        check_model "$REASONING_MODEL" "reasoning"
+    
+    - name: Run DockDesk Audit
+      id: audit
+      shell: bash
+      env:
+        OLLAMA_HOST: ${{ inputs.ollama_host }}
+      run: |
+        echo "[*] Starting Semantic Audit..."
+        
+        # Build CLI arguments
+        CLI_ARGS="--ci"
+        CLI_ARGS="$CLI_ARGS --workspace ${{ inputs.workspace_path }}"
+        CLI_ARGS="$CLI_ARGS --fail-on-risk ${{ inputs.fail_on_risk }}"
+        CLI_ARGS="$CLI_ARGS --format ${{ inputs.output_format }}"
+        
+        if [ "${{ inputs.auto_tune }}" == "true" ]; then
+          CLI_ARGS="$CLI_ARGS --auto-tune"
+        else
+          CLI_ARGS="$CLI_ARGS --model ${{ inputs.model }}"
+        fi
+        
+        if [ -n "${{ inputs.detect_model }}" ]; then
+          CLI_ARGS="$CLI_ARGS --detect-model ${{ inputs.detect_model }}"
+        fi
+        
+        if [ -n "${{ inputs.fix_model }}" ]; then
+          CLI_ARGS="$CLI_ARGS --fix-model ${{ inputs.fix_model }}"
+        fi
+        
+        if [ -n "${{ inputs.reasoning_model }}" ]; then
+          CLI_ARGS="$CLI_ARGS --reasoning-model ${{ inputs.reasoning_model }}"
+        fi
+        
+        if [ -n "${{ inputs.discord_webhook }}" ]; then
+          CLI_ARGS="$CLI_ARGS --discord-webhook ${{ inputs.discord_webhook }}"
+        fi
+        
+        if [ "${{ inputs.auto_fix }}" == "true" ]; then
+          CLI_ARGS="$CLI_ARGS --fix"
+        fi
+        
+        if [ "${{ inputs.skip_rag }}" == "true" ]; then
+          CLI_ARGS="$CLI_ARGS --skip-rag"
+        fi
+        
+        # Run the auditor via installed CLI
+        dockdesk $CLI_ARGS
+        
+        # Parse results for outputs — files now land in workspace dir
+        WS="${{ inputs.workspace_path }}"
+        if [ -f "${WS}/audit_report.md" ]; then
+          echo "report_path=${WS}/audit_report.md" >> $GITHUB_OUTPUT
+        fi
+        
+        # Extract metrics from dashboard_data.json if it exists
+        if [ -f "${WS}/dashboard_data.json" ]; then
+          FILES=$(python3 -c "import json; d=json.load(open('${WS}/dashboard_data.json')); print(len(d.get('latest_run_files',[])))" 2>/dev/null || echo "0")
+          HIGH=$(python3 -c "import json; d=json.load(open('${WS}/dashboard_data.json')); print(d.get('stats',{}).get('risk_totals',{}).get('HIGH',0))" 2>/dev/null || echo "0")
+          echo "files_audited=$FILES" >> $GITHUB_OUTPUT
+          echo "high_risk_count=$HIGH" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "status=pass" >> $GITHUB_OUTPUT
+        echo "fixes_applied=0" >> $GITHUB_OUTPUT
+
+    - name: Upload Audit Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dockdesk-audit
+        path: |
+          ${{ inputs.workspace_path }}/audit_report.md
+          ${{ inputs.workspace_path }}/dashboard_data.json
+          ${{ inputs.workspace_path }}/audit_history.jsonl
+        retention-days: 30
+
+    - name: Post PR Comment
+      if: github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let body = '## 🛡️ DockDesk Audit Results\n\n';
+          
+          try {
+            const report = fs.readFileSync('audit_report.md', 'utf8');
+            // Extract summary section only (first ~30 lines)
+            const lines = report.split('\n');
+            const summaryEnd = lines.findIndex((l, i) => i > 5 && l.startsWith('## File Results'));
+            const summary = lines.slice(0, summaryEnd > 0 ? summaryEnd : 30).join('\n');
+            body += summary;
+          } catch {
+            body += '_Audit report not found._\n';
+          }
+          
+          body += '\n\n---\n_Generated by DockDesk Dual-Model Auditor_';
+          
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body
+          });

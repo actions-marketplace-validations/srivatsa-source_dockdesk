@@ -1,0 +1,22 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+audit_report.md
+.env
+legacy/
+
+# Packaging
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# DockDesk runtime outputs
+.dockdesk_cache.db
+.dockdesk_cache/
+merkle_snapshot.json
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
