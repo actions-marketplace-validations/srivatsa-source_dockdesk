@@ -613,17 +613,12 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
 
     use_batching = fast_mode and len(changed_files) > batch_size
 
-    with Progress(
-        TextColumn("[white]{task.description}"),
-        BarColumn(bar_width=30, style="white", complete_style="white", finished_style="dim"),
-        TextColumn("[white]{task.percentage:>3.0f}%[/white]"),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
+    from dockdesk.ui import get_progress_bar
+    with get_progress_bar() as progress:
         if use_batching:
             # ── Batched mode: group files into batches ──
             batches = [changed_files[i:i+batch_size] for i in range(0, len(changed_files), batch_size)]
-            task = progress.add_task("Code analysis (batched)", total=len(batches))
+            task = progress.add_task("Code analysis (batched)", total=len(batches), filename="batching")
             with ThreadPoolExecutor(max_workers=max(2, max_workers // 2)) as executor:
                 future_map = {executor.submit(_analyze_batch, b): b for b in batches}
                 for future in as_completed(future_map):
@@ -641,7 +636,7 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
                     progress.advance(task)
         else:
             # ── Individual mode (default for small sets) ──
-            task = progress.add_task("Code analysis", total=len(changed_files))
+            task = progress.add_task("Code analysis", total=len(changed_files), filename="analyzing")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_map = {executor.submit(_analyze_single, f): f for f in changed_files}
                 for future in as_completed(future_map):
@@ -655,7 +650,7 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
                             "summary": f"Analysis failed: {str(e)}", "draft_fix": "",
                             "code_model": code_model, "duration_ms": 0, "cached": False,
                         })
-                    progress.advance(task)
+                    progress.update(task, advance=1, filename=os.path.basename(fpath))
 
     cached_count = sum(1 for r in code_findings if r.get("cached"))
     passes = sum(1 for r in code_findings if r.get("status") == "PASS")
@@ -898,14 +893,9 @@ Rules:
         pool_workers = _pool.optimal_workers(base=4) if _pool else 3
         cfg_workers = config.workers if config and hasattr(config, 'workers') and config.workers > 0 else 0
         max_workers = cfg_workers if cfg_workers > 0 else min(pool_workers, len(needs_reasoning))
-        with Progress(
-            TextColumn("[white]{task.description}"),
-            BarColumn(bar_width=30, style="white", complete_style="white", finished_style="dim"),
-            TextColumn("[white]{task.percentage:>3.0f}%[/white]"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Reasoning", total=len(needs_reasoning))
+        from dockdesk.ui import get_progress_bar
+        with get_progress_bar() as progress:
+            task = progress.add_task("Reasoning", total=len(needs_reasoning), filename="evaluating")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_map = {executor.submit(_reason_single, f): f for f in needs_reasoning}
                 for future in as_completed(future_map):
@@ -926,7 +916,7 @@ Rules:
                             "reasoning_model": reasoning_model,
                             "duration_ms": finding.get("duration_ms", 0),
                         })
-                    progress.advance(task)
+                    progress.update(task, advance=1, filename=os.path.basename(finding.get("file", "unknown")))
 
     # Summary table
     safe_count = sum(1 for r in audit_results if r.get("safe_to_push"))
@@ -1001,12 +991,9 @@ def reporting_node(state: AuditState) -> AuditState:
     model_display = f"{code_model_display} (code) / {reasoning_display} (reasoning)"
 
     # ── Rich summary table in terminal ──
-    summary_table = Table(title="Audit Results", show_lines=True, title_style="bold cyan", border_style="dim cyan")
-    summary_table.add_column("File", style="white", max_width=40)
-    summary_table.add_column("Status", justify="center", width=8)
-    summary_table.add_column("Risk", justify="center", width=8)
-    summary_table.add_column("Push?", justify="center", width=6)
-    summary_table.add_column("Summary", style="dim", max_width=50)
+    from dockdesk.ui import get_results_table, print_section_rule
+    print_section_rule("AUDIT RESULTS")
+    summary_table = get_results_table()
 
     for res in results:
         file_path = res.get("file", "unknown")
@@ -1019,17 +1006,17 @@ def reporting_node(state: AuditState) -> AuditState:
             rel = "..." + rel[-37:]
 
         status = res.get("status", "?")
-        status_style_map = {"PASS": "bold green", "FAIL": "bold red", "SKIP": "dim", "ERROR": "bold yellow"}
+        status_style_map = {"PASS": "bold #00FFFF", "FAIL": "bold #FF1493", "SKIP": "dim #DA70D6", "ERROR": "bold #FFD700"}
         status_str = f"[{status_style_map.get(status, 'white')}]{status}[/{status_style_map.get(status, 'white')}]"
 
         risk = res.get("risk", "?")
-        risk_style_map = {"HIGH": "bold red", "MEDIUM": "bold yellow", "MED": "bold yellow", "LOW": "green"}
+        risk_style_map = {"HIGH": "bold #FF1493", "MEDIUM": "bold #FFD700", "MED": "bold #FFD700", "LOW": "bold #00FFFF"}
         risk_label = {"HIGH": "HIGH", "MEDIUM": "MED", "MED": "MED", "LOW": "LOW"}.get(risk, risk)
         risk_str = f"[{risk_style_map.get(risk, 'dim')}]{risk_label}[/{risk_style_map.get(risk, 'dim')}]"
 
         safe = res.get("safe_to_push")
-        safe_str = "[green]✓[/green]" if safe else "[red]✗[/red]"
-        summary = (res.get("summary", "") or "")[:50]
+        safe_str = "[bold #00FFFF]✔ YES[/bold #00FFFF]" if safe else "[bold #FF1493]✘ NO[/bold #FF1493]"
+        summary = (res.get("summary", "") or "")[:80]
 
         summary_table.add_row(rel, status_str, risk_str, safe_str, summary)
 

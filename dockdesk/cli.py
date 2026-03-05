@@ -25,40 +25,12 @@ import subprocess
 import re
 import atexit
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
-from rich.columns import Columns
-from rich.rule import Rule
 
 console = Console(highlight=False)
 
-ASCII_BANNER = r"""
- ____   ___   ____ _  ______  _____ ____  _  __
-|  _ \ / _ \ / ___| |/ /  _ \| ____/ ___|| |/ /
-| | | | | | | |   | ' /| | | |  _| \___ \| ' / 
-| |_| | |_| | |___| . \| |_| | |___ ___) | . \ 
-|____/ \___/ \____|_|\_\____/|_____|____/|_|\_\
-"""
-
-
 def _print_loading(skip: bool = False, version: str = ""):
-    """Print retro ASCII loading animation. Skipped in fast/CI mode."""
-    ver_tag = f"  v{version}" if version else ""
-    console.print(f"[bold cyan]{ASCII_BANNER}[/bold cyan]", end="")
-    console.print(f"[dim italic]  Semantic Code & Documentation Auditor{ver_tag}[/dim italic]")
-    console.print()
-    if skip:
-        return
-    frames = [
-        ("[dim cyan]  [::] Initializing neural auditor ...[/dim cyan]", 0.12),
-        ("[dim cyan]  [::] Loading code analysis engine ...[/dim cyan]", 0.12),
-        ("[dim cyan]  [::] Connecting to local LLM backend ...[/dim cyan]", 0.12),
-        ("[bold green]  [OK] System ready.[/bold green]", 0.08),
-    ]
-    for frame, delay in frames:
-        console.print(frame)
-        time.sleep(delay)
-    console.print()
+    from dockdesk.ui import print_logo, print_init_spinners
+    print_init_spinners(skip=skip, version=version)
 
 
 # ── Git URL / remote repo support ──
@@ -226,17 +198,15 @@ def run_audit(args):
     _rules_tag = f"  Rules: {len(config.custom_rules)} custom" if config.custom_rules else ""
     _rag_tag = "skip-rag" if config.skip_rag else "rag"
 
-    console.print(Panel.fit(
-        f"[bold cyan]DockDesk[/bold cyan] [dim]Dual-Model Auditor[/dim]\n"
-        f"\n"
-        f"[bold white]Workspace[/bold white]  {workspace}\n"
-        f"[bold white]Code[/bold white]       {model} [dim]({model_tier})[/dim]\n"
-        f"[bold white]Reasoning[/bold white]  {reasoning_model}\n"
-        f"[bold white]LOC[/bold white]        {total_loc:,}\n"
-        f"[bold white]Mode[/bold white]       {_scan_mode} | {_rag_tag}{_rules_tag}",
-        border_style="cyan",
-        padding=(0, 2),
-    ))
+    from dockdesk.ui import print_config_panel
+    print_config_panel(
+        workspace=workspace,
+        models=f"{model} ({model_tier}) · {reasoning_model}",
+        loc=f"{total_loc:,}",
+        exec_mode=f"{_scan_mode} | {_rag_tag}{_rules_tag}",
+        out_format=config.output_format.name,
+        risk_thres=config.fail_on_risk.name
+    )
 
     changelog = ChangelogWriter(workspace, config.changelog_file) if config.enable_changelog else None
     app = create_audit_graph()
@@ -315,29 +285,23 @@ def run_audit(args):
             console.print()
 
         # ── Final summary panel ──
+        from dockdesk.ui import print_summary_card
         _high = sum(1 for r in audit_results if r.get("risk") == "HIGH")
         _med = sum(1 for r in audit_results if r.get("risk") == "MEDIUM")
         _low = sum(1 for r in audit_results if r.get("risk") == "LOW")
         _pass = sum(1 for r in audit_results if r.get("status") == "PASS")
         _fail = sum(1 for r in audit_results if r.get("status") == "FAIL")
-        _safe = sum(1 for r in audit_results if r.get("safe_to_push") is True)
-        _unsafe = sum(1 for r in audit_results if r.get("safe_to_push") is False)
-        _verdict_color = "bold red" if _high > 0 else ("bold yellow" if _med > 0 else "bold green")
-        _verdict = "UNSAFE" if _high > 0 else ("REVIEW" if _med > 0 else "CLEAN")
 
-        console.print(Panel.fit(
-            f"[bold cyan]Audit Complete[/bold cyan]  [{_verdict_color}]{_verdict}[/{_verdict_color}]\n"
-            f"\n"
-            f"  Files: {len(audit_results)}   "
-            f"Pass: [green]{_pass}[/green]   "
-            f"Fail: [red]{_fail}[/red]\n"
-            f"  Risk:  [red]{_high} HIGH[/red]  [yellow]{_med} MED[/yellow]  [green]{_low} LOW[/green]\n"
-            f"  Push:  [green]{_safe} safe[/green]  [red]{_unsafe} blocked[/red]\n"
-            f"\n"
-            f"  Report: {report_path}",
-            border_style="green" if _high == 0 else "red",
-            padding=(0, 2),
-        ))
+        print_summary_card(
+            total=len(audit_results),
+            pass_count=_pass,
+            fail_count=_fail,
+            high=_high,
+            med=_med,
+            low=_low,
+            report_path=report_path,
+            version=_ver
+        )
 
         if config.ci_mode:
             high_risk_count = sum(1 for r in audit_results if r.get("risk") == "HIGH")
