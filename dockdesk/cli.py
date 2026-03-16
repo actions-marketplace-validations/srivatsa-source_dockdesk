@@ -24,7 +24,12 @@ import shutil
 import subprocess
 import re
 import atexit
+from pathlib import Path
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from rich.table import Table
+from rich.prompt import Prompt
 
 console = Console(highlight=False)
 
@@ -52,6 +57,333 @@ def _cleanup_temp_clones():
 
 
 atexit.register(_cleanup_temp_clones)
+
+
+# ── Interactive workspace picker ───────────────────────────────────────────────
+
+_PROJECT_MARKERS = {
+    ".git",
+    "pyproject.toml",
+    "package.json",
+    "pom.xml",
+    "build.gradle",
+    "requirements.txt",
+    "setup.py",
+    "Cargo.toml",
+    "go.mod",
+    "*.sln",
+}
+
+_SOURCE_SUFFIXES = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".cs", ".go", ".rs", ".cpp", ".c", ".h"
+}
+
+
+def _looks_like_project(path: Path) -> tuple[bool, str]:
+    """Heuristic to decide whether a folder is an auditable project root."""
+    if not path.is_dir():
+        return False, ""
+
+    for marker in _PROJECT_MARKERS:
+        if "*" in marker:
+            if list(path.glob(marker)):
+                return True, f"marker: {marker}"
+        elif (path / marker).exists():
+            return True, f"marker: {marker}"
+
+    # Fallback: has enough source files and basic project metadata.
+    src_dirs = [path, path / "src", path / "app", path / "lib"]
+    source_count = 0
+    for d in src_dirs:
+        if not d.exists() or not d.is_dir():
+            continue
+        try:
+            for child in d.iterdir():
+                if child.is_file() and child.suffix.lower() in _SOURCE_SUFFIXES:
+                    source_count += 1
+                    if source_count >= 8:
+                        has_meta = any(
+                            (path / name).exists()
+                            for name in ("README.md", "README", "LICENSE", ".gitignore")
+                        )
+                        if has_meta:
+                            return True, "marker: source files"
+        except (PermissionError, OSError):
+            continue
+
+    return False, ""
+
+
+def _discover_projects(base_dir: Path, max_depth: int = 3, limit: int = 40) -> list[tuple[Path, str]]:
+    """Discover likely project folders under base_dir with shallow recursion."""
+    projects: list[tuple[Path, str]] = []
+    seen: set[str] = set()
+
+    def walk(cur: Path, depth: int) -> None:
+        if len(projects) >= limit or depth > max_depth:
+            return
+        try:
+            entries = list(cur.iterdir())
+        except (PermissionError, OSError):
+            return
+
+        is_proj, reason = _looks_like_project(cur)
+        cur_key = str(cur.resolve()).lower()
+        if is_proj and cur_key not in seen:
+            # Avoid showing nested source-only folders when parent already has stronger markers.
+            ancestor_has_project = any(
+                str(parent.resolve()).lower() in seen
+                for parent in cur.parents
+                if parent.resolve() != base_dir.resolve()
+            )
+
+            if ancestor_has_project and reason == "marker: source files":
+                is_proj = False
+
+        if is_proj and cur_key not in seen:
+            projects.append((cur, reason))
+            seen.add(cur_key)
+
+        for entry in entries:
+            if len(projects) >= limit:
+                return
+            if not entry.is_dir():
+                continue
+            if entry.name.startswith("."):
+                continue
+            if entry.name in {"node_modules", "__pycache__", ".venv", "venv", "dist", "build", "target"}:
+                continue
+            walk(entry, depth + 1)
+
+    walk(base_dir, 0)
+    projects.sort(key=lambda p: str(p[0]).lower())
+    return projects
+
+
+def _render_project_table(projects: list[tuple[Path, str]], base_dir: Path) -> None:
+    table = Table(title="[bold #FF1493]Auditable Local Projects[/bold #FF1493]", show_lines=True)
+    table.add_column("#", style="bold #DA70D6", justify="right", width=4)
+    table.add_column("Project Folder", style="#FF00FF", overflow="fold")
+    table.add_column("Signal", style="#FF69B4")
+
+    for i, (path, reason) in enumerate(projects, start=1):
+        try:
+            display = str(path.relative_to(base_dir))
+        except ValueError:
+            display = str(path)
+        table.add_row(str(i), display, reason)
+
+    console.print(table)
+
+
+def _browse_for_workspace(start_dir: Path) -> Path | None:
+    """Simple folder picker that works in plain terminals."""
+    current = start_dir.resolve()
+
+    while True:
+        console.print(Panel(
+            f"[bold #DA70D6]Folder Browser[/bold #DA70D6]\n"
+            f"[white]Current:[/white] [#FF69B4]{current}[/#FF69B4]\n"
+            "[dim]Type a number to enter folder, '..' for parent, '.' to select this folder, 'q' to cancel.[/dim]",
+            border_style="#8A2BE2"
+        ))
+
+        dirs: list[Path] = []
+        try:
+            dirs = sorted(
+                [p for p in current.iterdir() if p.is_dir() and not p.name.startswith(".")],
+                key=lambda p: p.name.lower()
+            )
+        except (PermissionError, OSError):
+            console.print("[bold red][-] Cannot read this folder.[/bold red]")
+
+        if not dirs:
+            console.print("[yellow][*] No visible subfolders here.[/yellow]")
+        else:
+            max_show = min(len(dirs), 25)
+            for idx in range(max_show):
+                console.print(f"[#DA70D6]{idx + 1:>2}[/#DA70D6]  [#FF69B4]{dirs[idx].name}[/#FF69B4]")
+            if len(dirs) > max_show:
+                console.print(f"[dim]... and {len(dirs) - max_show} more[/dim]")
+
+        choice = Prompt.ask("[#FF00FF]browse[/#FF00FF]").strip()
+
+        if choice.lower() == "q":
+            return None
+        if choice == ".":
+            return current
+        if choice == "..":
+            parent = current.parent
+            current = parent if parent != current else current
+            continue
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(dirs):
+                current = dirs[idx]
+                continue
+        console.print("[yellow][!] Invalid choice.[/yellow]")
+
+
+def _interactive_workspace_picker(default_base: Path) -> str | None:
+    """Choose a workspace from discovered projects or manual browse."""
+    base_dir = default_base.resolve()
+
+    while True:
+        console.print(Panel(
+            f"[bold #FF1493]DockDesk Interactive Mode[/bold #FF1493]\n"
+            f"[white]Scan root:[/white] [#FF69B4]{base_dir}[/#FF69B4]\n"
+            "[dim]Choose a detected project, rescan a different root, or open folder browser.[/dim]",
+            border_style="#8A2BE2"
+        ))
+
+        projects = _discover_projects(base_dir)
+        if projects:
+            _render_project_table(projects, base_dir)
+            console.print("[dim]Commands: number = select, b = browse, r = rescan root, q = quit[/dim]")
+        else:
+            console.print("[yellow][!] No project folders detected in this root.[/yellow]")
+            console.print("[dim]Commands: b = browse, r = rescan root, q = quit[/dim]")
+
+        choice = Prompt.ask("[#FF00FF]select[/#FF00FF]").strip().lower()
+
+        if choice == "q":
+            return None
+        if choice == "b":
+            selected = _browse_for_workspace(base_dir)
+            if selected:
+                return str(selected)
+            continue
+        if choice == "r":
+            new_root = Prompt.ask("[#DA70D6]New scan root[/#DA70D6]", default=str(base_dir)).strip()
+            if new_root:
+                candidate = Path(new_root).expanduser().resolve()
+                if candidate.exists() and candidate.is_dir():
+                    base_dir = candidate
+                else:
+                    console.print("[bold red][-] Invalid folder path.[/bold red]")
+            continue
+        if choice.isdigit() and projects:
+            idx = int(choice) - 1
+            if 0 <= idx < len(projects):
+                return str(projects[idx][0].resolve())
+        console.print("[yellow][!] Invalid choice.[/yellow]")
+
+
+def _interactive_main_menu() -> None:
+    """Main interactive flow for users running dockdesk with no args."""
+    from dockdesk import __version__ as _ver
+
+    _print_loading(skip=True, version=_ver)
+    workspace = _interactive_workspace_picker(Path.cwd())
+    if not workspace:
+        console.print("[dim]Session closed.[/dim]")
+        return
+
+    while True:
+        menu = Table(show_header=False, box=None)
+        menu.add_column(style="bold #DA70D6", width=5)
+        menu.add_column(style="#FF69B4")
+        menu.add_row("1", "Run Audit")
+        menu.add_row("2", "List Models")
+        menu.add_row("3", "Open Dashboard Stats")
+        menu.add_row("4", "Init Config")
+        menu.add_row("5", "Change Workspace")
+        menu.add_row("6", "Exit")
+
+        console.print(Panel(
+            menu,
+            title=Text("[ Mission Menu ]", style="bold #FF1493"),
+            subtitle=Text(f"Workspace: {workspace}", style="#DA70D6"),
+            border_style="#8A2BE2"
+        ))
+
+        choice = Prompt.ask("[#FF00FF]action[/#FF00FF]", default="1").strip()
+
+        if choice == "1":
+            opts = _interactive_audit_options(workspace)
+            if opts is not None:
+                run_audit(opts)
+        elif choice == "2":
+            list_models_cmd(argparse.Namespace())
+        elif choice == "3":
+            dashboard_cmd(argparse.Namespace(workspace=workspace, export=None))
+        elif choice == "4":
+            init_config_cmd(argparse.Namespace(workspace=workspace, force=False))
+        elif choice == "5":
+            picked = _interactive_workspace_picker(Path(workspace))
+            if picked:
+                workspace = picked
+        elif choice == "6":
+            console.print("[dim]Session closed.[/dim]")
+            return
+        else:
+            console.print("[yellow][!] Invalid choice.[/yellow]")
+
+
+def _prompt_bool(label: str, default: bool = False) -> bool:
+    """Prompt for yes/no using y/n with sensible defaults."""
+    d = "y" if default else "n"
+    value = Prompt.ask(label, default=d).strip().lower()
+    return value in {"y", "yes", "true", "1"}
+
+
+def _interactive_audit_options(workspace: str) -> argparse.Namespace | None:
+    """Collect quick audit options from interactive mode."""
+    console.print(Panel(
+        "[bold #FF1493]Quick Audit Options[/bold #FF1493]\n"
+        "[dim]Press Enter to accept defaults. Type 'q' to cancel and return.[/dim]",
+        border_style="#8A2BE2"
+    ))
+
+    model = Prompt.ask("[#DA70D6]Code model[/#DA70D6]", default="qwen2.5-coder:7b").strip()
+    if model.lower() == "q":
+        return None
+
+    auto_tune = _prompt_bool("[#DA70D6]Auto-tune model by LOC?[/#DA70D6]", default=False)
+    reasoning_model = Prompt.ask("[#DA70D6]Reasoning model[/#DA70D6]", default="deepseek-r1:1.5b").strip()
+    out_format = Prompt.ask("[#DA70D6]Output format (md/json/sarif)[/#DA70D6]", default="md").strip().lower()
+    if out_format not in {"md", "json", "sarif"}:
+        console.print("[yellow][!] Invalid format, using md.[/yellow]")
+        out_format = "md"
+
+    skip_rag = _prompt_bool("[#DA70D6]Skip RAG for speed?[/#DA70D6]", default=False)
+    fast_mode = _prompt_bool("[#DA70D6]Enable fast mode?[/#DA70D6]", default=False)
+    turbo = _prompt_bool("[#DA70D6]Enable turbo mode?[/#DA70D6]", default=False)
+    apply_fixes = _prompt_bool("[#DA70D6]Apply documentation fixes?[/#DA70D6]", default=False)
+    fix_code = _prompt_bool("[#DA70D6]Also allow code fixes?[/#DA70D6]", default=False) if apply_fixes else False
+    verbose = _prompt_bool("[#DA70D6]Verbose output?[/#DA70D6]", default=False)
+
+    return argparse.Namespace(
+        workspace=workspace,
+        model=None if auto_tune else model,
+        detect_model=None,
+        fix_model=None,
+        reasoning_model=reasoning_model or None,
+        discord_webhook=None,
+        auto_tune=auto_tune,
+        fix=apply_fixes,
+        fix_code=fix_code,
+        ci=False,
+        verbose=verbose,
+        format=out_format,
+        output=None,
+        fail_on_risk="HIGH",
+        skip_rag=skip_rag,
+        max_files=None,
+        max_file_size=None,
+        include=None,
+        exclude=None,
+        workers=None,
+        ollama_urls=None,
+        fast=fast_mode,
+        batch_size=None,
+        clear_cache=None,
+        no_gitignore=False,
+        turbo=turbo,
+        keep_clone=False,
+        rules=None,
+        force_full_scan=None,
+    )
 
 
 def _resolve_workspace(workspace: str, keep_clone: bool = False) -> tuple[str, bool]:
@@ -520,6 +852,11 @@ def add_audit_args(parser):
 def main():
     """Main entry point for the dockdesk CLI."""
     from dockdesk import __version__
+
+    # No args -> interactive mode with project picker and themed menus.
+    if len(sys.argv) == 1:
+        _interactive_main_menu()
+        return
 
     parser = argparse.ArgumentParser(
         prog="dockdesk",

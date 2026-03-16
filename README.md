@@ -1,4 +1,4 @@
-# DockDesk v2.3
+# DockDesk v2.3.3
 
 **Local-First Semantic Documentation Auditor**
 
@@ -15,7 +15,7 @@ Ensure your code and documentation never drift apart without sending a single by
 ## Table of Contents
 
 - [Overview](#overview)
-- [What's New in v2.3](#whats-new-in-v23)
+- [What's New in v2.3.3](#whats-new-in-v233)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Model Selection](#model-selection)
@@ -48,6 +48,13 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 | **Infrastructure Cost** | No API credits. Efficient SLMs run on standard hardware. |
 
 ---
+
+## What's New in v2.3.3
+
+| Feature | Description |
+|---------|-------------|
+| **🗂️ Interactive Project Picker** | Running `dockdesk` with no args now opens a themed local project browser + folder picker |
+| **⚙️ Quick Audit Options** | Interactive mode now prompts for model, reasoning model, output format, fix toggles, and speed modes |
 
 ## What's New in v2.3
 

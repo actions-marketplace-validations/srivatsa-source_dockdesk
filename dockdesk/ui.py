@@ -46,7 +46,7 @@ GRADIENT_COLORS = [
 ]
 
 
-def print_logo(version: str = "2.3.1", animated: bool = True):
+def print_logo(version: str = "2.3.3", animated: bool = True):
     lines = ASCII_LOGO.strip("\n").split("\n")
     total_lines = len(lines)
     for i, line in enumerate(lines):
@@ -65,7 +65,7 @@ def print_logo(version: str = "2.3.1", animated: bool = True):
     console.print(Align.center(Text(f"v{version}  ·  Neural Edition", style=f"dim {MAGENTA}")))
     console.print()
 
-def print_init_spinners(skip: bool = False, version: str = "2.3.1", init_steps=None):
+def print_init_spinners(skip: bool = False, version: str = "2.3.3", init_steps=None):
     if not skip:
         print_logo(version, animated=True)
     else:
@@ -170,7 +170,7 @@ def get_results_table():
     table.add_column("SUMMARY", style=f"dim {NEON_PINK}", ratio=5)
     return table
 
-def print_summary_card(total, pass_count, fail_count, high, med, low, report_path, version="2.3.2"):
+def print_summary_card(total, pass_count, fail_count, high, med, low, report_path, version="2.3.3"):
     grid = Table.grid(padding=(0, 4))
     grid.add_column(justify="center")
     grid.add_column(justify="center")
