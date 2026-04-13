@@ -50,6 +50,47 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
+/* ── Tree View Animations ── */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 2000px;
+  }
+}
+
+.animate-slideDown {
+  animation: slideDown 200ms ease-out;
+}
+
+/* Tree branch connector lines */
+.tree-branch {
+  position: relative;
+}
+.tree-branch::before {
+  content: '';
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    rgba(99, 102, 241, 0.2) 0%,
+    rgba(99, 102, 241, 0.05) 100%
+  );
+}
+
+/* Tree node hover glow */
+.tree-branch button:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
 /* ── Print / PDF Export Styles ── */
 @media print {
   body {
@@ -61,7 +102,7 @@ body {
 
   /* Hide sidebar, header controls, and interactive elements */
   aside,
-  .print\\:hidden,
+  .print\:hidden,
   button,
   .pulse-dot {
     display: none !important;
@@ -85,9 +126,19 @@ body {
     color: #1a1a2e !important;
   }
 
+  /* Risk colors in print */
+  [class*="text-red"] { color: #ef4444 !important; }
+  [class*="text-amber"] { color: #f59e0b !important; }
+  [class*="text-emerald"] { color: #10b981 !important; }
+
   /* Page break control */
   .grid {
     break-inside: avoid;
+  }
+
+  /* Tree view: open for print */
+  .tree-branch {
+    display: block !important;
   }
 
   /* Header for print */

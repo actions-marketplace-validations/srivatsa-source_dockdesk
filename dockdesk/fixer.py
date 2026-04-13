@@ -182,6 +182,123 @@ def apply_fix(
     return result
 
 
+def _show_diff(file_path: str, fix_content: str) -> None:
+    """Show a side-by-side diff of original vs proposed fix."""
+    from rich.syntax import Syntax
+    from rich.columns import Columns
+    from rich.panel import Panel as RPanel
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            original = f.read()
+    except Exception:
+        original = "(could not read original)"
+
+    ext = Path(file_path).suffix.lstrip(".")
+    lang = ext if ext in ("py", "js", "ts", "go", "rs", "java", "md", "yml") else "text"
+
+    # Truncate for display
+    orig_display = original[:2000] + ("\n..." if len(original) > 2000 else "")
+    fix_display = fix_content[:2000] + ("\n..." if len(fix_content) > 2000 else "")
+
+    left = RPanel(
+        Syntax(orig_display, lang, theme="monokai", line_numbers=True, word_wrap=True),
+        title="[bold red]Original[/bold red]",
+        border_style="red",
+        width=60,
+    )
+    right = RPanel(
+        Syntax(fix_display, lang, theme="monokai", line_numbers=True, word_wrap=True),
+        title="[bold green]Proposed Fix[/bold green]",
+        border_style="green",
+        width=60,
+    )
+    console.print(Columns([left, right], padding=1))
+
+
+def _open_in_editor(file_path: str, fix_content: str) -> str:
+    """Open fix content in $EDITOR for manual tweaking, return edited content."""
+    import tempfile
+
+    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", ""))
+    if not editor:
+        # Platform-specific fallback
+        if os.name == "nt":
+            editor = "notepad"
+        else:
+            editor = "nano"
+
+    ext = Path(file_path).suffix
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=ext, prefix="dockdesk_fix_", delete=False, encoding="utf-8"
+    ) as tmp:
+        tmp.write(fix_content)
+        tmp_path = tmp.name
+
+    try:
+        import subprocess
+        subprocess.run([editor, tmp_path], check=True)
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        console.print(f"[red]Editor failed: {e}[/red]")
+        return fix_content
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def _interactive_fix_prompt(file_path: str, fix_content: str, fix_type: FixType) -> str:
+    """Show rich interactive fix prompt. Returns: 'y', 'n', 'q', or edited content."""
+    from rich.panel import Panel as RPanel
+
+    # Show a compact summary
+    console.print()
+    console.print(RPanel(
+        f"[bold #DA70D6]File:[/bold #DA70D6] [#FF69B4]{file_path}[/#FF69B4]\n"
+        f"[bold #DA70D6]Type:[/bold #DA70D6] [#FF69B4]{fix_type.value}[/#FF69B4]\n"
+        f"[bold #DA70D6]Size:[/bold #DA70D6] [#FF69B4]{len(fix_content)} chars[/#FF69B4]",
+        title="[bold #FF1493]Proposed Fix[/bold #FF1493]",
+        border_style="#8A2BE2",
+    ))
+
+    # Show first 500 chars preview
+    preview = fix_content[:500]
+    if len(fix_content) > 500:
+        preview += "\n..."
+    console.print(f"[dim]{preview}[/dim]")
+
+    while True:
+        choice = input("\n  Apply? [y]es  [n]o  [e]dit  [d]iff  [q]uit  [?]help → ").strip().lower()
+
+        if choice in ("y", "yes"):
+            return "y"
+        elif choice in ("n", "no"):
+            return "n"
+        elif choice in ("q", "quit"):
+            return "q"
+        elif choice in ("d", "diff"):
+            _show_diff(file_path, fix_content)
+        elif choice in ("e", "edit"):
+            edited = _open_in_editor(file_path, fix_content)
+            console.print(f"[green]✓ Edited fix ({len(edited)} chars)[/green]")
+            return edited  # Return the edited content to apply
+        elif choice == "?":
+            console.print(
+                "\n  [bold #FF1493]Fix Options:[/bold #FF1493]\n"
+                "    [#DA70D6]y[/#DA70D6]  Apply this fix as-is\n"
+                "    [#DA70D6]n[/#DA70D6]  Skip this fix\n"
+                "    [#DA70D6]e[/#DA70D6]  Open in $EDITOR for manual tweaking\n"
+                "    [#DA70D6]d[/#DA70D6]  Show side-by-side diff (original vs fix)\n"
+                "    [#DA70D6]q[/#DA70D6]  Quit fixing (skip all remaining)\n"
+                "    [#DA70D6]?[/#DA70D6]  Show this help\n"
+            )
+        else:
+            console.print("[yellow]  Invalid choice. Type '?' for help.[/yellow]")
+
+
 def apply_fixes_batch(
     audit_results: List[Dict],
     workspace: str,
@@ -197,7 +314,7 @@ def apply_fixes_batch(
         workspace: Workspace root
         allow_code_fixes: Whether to allow code modifications
         dry_run: Validate only, don't write
-        interactive: Prompt for each fix
+        interactive: Prompt for each fix with rich UI
         
     Returns:
         List of FixResult objects
@@ -220,13 +337,11 @@ def apply_fixes_batch(
         fix_type = detect_fix_type(file_path)
         
         if interactive:
-            console.print(f"\n[bold]Fix for {file_path} ({fix_type.value}):[/bold]")
-            console.print(fix_content[:500] + "..." if len(fix_content) > 500 else fix_content)
-            
-            choice = input("\nApply this fix? (y/n/q): ").lower().strip()
-            if choice == 'q':
+            decision = _interactive_fix_prompt(file_path, fix_content, fix_type)
+
+            if decision == 'q':
                 break
-            if choice != 'y':
+            if decision == 'n':
                 results.append(FixResult(
                     file_path=file_path,
                     fix_type=fix_type,
@@ -235,6 +350,10 @@ def apply_fixes_batch(
                     error="User skipped"
                 ))
                 continue
+            # If decision is a string longer than 1 char, it's edited content
+            if len(decision) > 1:
+                fix_content = decision
+            # else decision == 'y', proceed with original fix_content
         
         fix_result = apply_fix(
             file_path=file_path,

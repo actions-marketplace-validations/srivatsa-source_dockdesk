@@ -32,6 +32,7 @@ DEFAULT_TEMPERATURE = 0.1
 # ── Module-level singletons (initialized per-run in discover_node) ──
 _cache: Optional[ResultCache] = None
 _pool: Optional[OllamaPool] = None
+_plugin_mgr = None
 
 
 def _init_infrastructure(workspace: str, config=None):
@@ -52,6 +53,14 @@ def _init_infrastructure(workspace: str, config=None):
     if config and getattr(config, 'clear_cache', False):
         _cache.clear()
         console.print("[dim]  Cache cleared[/dim]")
+
+    # Plugin manager
+    global _plugin_mgr
+    try:
+        from .plugins import PluginManager
+        _plugin_mgr = PluginManager(workspace).discover()
+    except Exception:
+        _plugin_mgr = None
 
     # OllamaPool
     urls = None
@@ -415,6 +424,28 @@ def code_analysis_node(state: AuditState) -> AuditState:
 
     console.print(f"[dim]  └─ Code model: {code_model}[/dim]")
 
+    rotate_models = bool(config and hasattr(config, 'rotate_models') and config.rotate_models)
+    rotation_models: List[str] = []
+    file_to_model: Dict[str, str] = {}
+    if rotate_models:
+        rotation_models = _get_available_models_for_rotation()
+        # Keep explicit model first when available so existing behavior stays predictable.
+        if code_model in rotation_models:
+            rotation_models = [code_model] + [m for m in rotation_models if m != code_model]
+        # Avoid noisy model churn when only one model is available.
+        if len(rotation_models) > 1:
+            for i, fp in enumerate(changed_files):
+                file_to_model[fp] = rotation_models[i % len(rotation_models)]
+            console.print(
+                f"[dim]  └─ Model rotation: enabled ({len(rotation_models)} models, round-robin)[/dim]"
+            )
+        else:
+            file_to_model = {fp: code_model for fp in changed_files}
+            rotate_models = False
+            console.print("[dim]  └─ Model rotation requested, but only one local audit model was found[/dim]")
+    else:
+        file_to_model = {fp: code_model for fp in changed_files}
+
     # Batch size for multi-file analysis
     batch_size = config.batch_size if config and hasattr(config, 'batch_size') else 5
     fast_mode = config.fast_mode if config and hasattr(config, 'fast_mode') else False
@@ -423,8 +454,9 @@ def code_analysis_node(state: AuditState) -> AuditState:
     _precomputed_keys: Dict[str, str] = {}
     for fp in changed_files:
         content = state["file_contents"].get(fp, "")
+        selected_model = file_to_model.get(fp, code_model)
         if _cache:
-            _precomputed_keys[fp] = ResultCache.make_key(fp, content, code_model)
+            _precomputed_keys[fp] = ResultCache.make_key(fp, content, selected_model)
 
     _precomputed_docs: Dict[str, List[dict]] = {}
     for fp in changed_files:
@@ -439,6 +471,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
     def _analyze_single(file_path: str) -> dict:
         start_time = time.time()
         code_content = state["file_contents"].get(file_path, "")
+        selected_model = file_to_model.get(file_path, code_model)
 
         # ── SQLite cache check (pre-computed key) ──
         ck = _precomputed_keys.get(file_path)
@@ -474,7 +507,7 @@ IMPORTANT:
             ("user", "FILE: {file_path}\nCODE:\n{code_content}\nDOCS:\n{docs_text}")
         ])
 
-        llm = _pool.get_llm(model=code_model, temperature=temperature, num_predict=512, num_ctx=2048) if _pool else ChatOllama(model=code_model, temperature=temperature, num_predict=512, num_ctx=2048)
+        llm = _pool.get_llm(model=selected_model, temperature=temperature, num_predict=512, num_ctx=2048) if _pool else ChatOllama(model=selected_model, temperature=temperature, num_predict=512, num_ctx=2048)
         chain = prompt | llm
 
         # If no docs were found, short-circuit to SKIP without calling the LLM
@@ -502,7 +535,7 @@ IMPORTANT:
                 result["summary"] = result.get("summary", "No documentation found")
 
         result["file"] = file_path
-        result["code_model"] = code_model
+        result["code_model"] = selected_model
         result["duration_ms"] = int((time.time() - start_time) * 1000)
         result.setdefault("findings", [])
         result.setdefault("draft_fix", "")
@@ -512,7 +545,7 @@ IMPORTANT:
 
         # Persist to SQLite cache (reuse pre-computed key)
         if _cache and ck:
-            _cache.put(ck, result, model=code_model, file_path=file_path)
+            _cache.put(ck, result, model=selected_model, file_path=file_path)
         return result
 
     def _analyze_batch(file_paths: List[str]) -> List[dict]:
@@ -611,7 +644,7 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
     cfg_workers = config.workers if config and hasattr(config, 'workers') and config.workers > 0 else 0
     max_workers = cfg_workers if cfg_workers > 0 else min(pool_workers, len(changed_files)) if changed_files else 1
 
-    use_batching = fast_mode and len(changed_files) > batch_size
+    use_batching = (not rotate_models) and fast_mode and len(changed_files) > batch_size
 
     from dockdesk.ui import get_progress_bar
     with get_progress_bar() as progress:
@@ -924,6 +957,11 @@ Rules:
     high_count = sum(1 for r in audit_results if r.get("risk") == "HIGH")
     console.print(f"[dim]  └─ Reasoning done: [green]{safe_count} safe[/green], [red]{unsafe_count} unsafe[/red], [bold red]{high_count} HIGH[/bold red] risk[/dim]")
 
+    # Run plugin post-audit hooks
+    if _plugin_mgr and _plugin_mgr.has_plugins:
+        audit_results = _plugin_mgr.run_post_hooks(audit_results)
+        console.print(f"[dim]  \u2514\u2500 Plugins: post_audit hooks applied[/dim]")
+
     return {"audit_results": audit_results}
 
 
@@ -950,6 +988,12 @@ def notify_node(state: AuditState) -> AuditState:
         code_model=code_model,
         reasoning_model=reasoning_model,
     )
+
+    # Best-effort follow-up tree summary for quick directory-level visibility.
+    try:
+        notifier.post_tree_summary(audit_results=audit_results)
+    except Exception:
+        pass
 
     return {"discord_posted": posted}
 
@@ -1023,6 +1067,48 @@ def reporting_node(state: AuditState) -> AuditState:
     console.print(summary_table)
     console.print()
 
+    from rich.tree import Tree
+    import subprocess
+    import re
+
+    error_tree = Tree("[bold cyan]🚨 Semantic Drift Error Trajectories[/bold cyan]")
+    has_errors = False
+
+    for res in results:
+        status = res.get("status", "?")
+        if status not in ("FAIL", "ERROR"):
+            continue
+        
+        file_path = res.get("file", "unknown")
+        try:
+            rel = os.path.relpath(file_path, workspace)
+        except ValueError:
+            rel = file_path
+
+        author = "Unknown"
+        try:
+            blame_out = subprocess.check_output(
+                ["git", "blame", "--porcelain", rel], 
+                cwd=workspace, stderr=subprocess.DEVNULL, text=True
+            )
+            m = re.search(r'^author (.+)$', blame_out, re.MULTILINE)
+            if m:
+                author = m.group(1)
+        except Exception:
+            pass
+
+        node = error_tree.add(f"[bold red]{rel}[/bold red] (Author: [yellow]{author}[/yellow])")
+        findings = res.get("findings", [])
+        if not findings and "summary" in res:
+            findings = [res["summary"]]
+        for f in findings:
+            node.add(f"[white]{f}[/white]")
+        has_errors = True
+
+    if has_errors:
+        console.print(error_tree)
+        console.print()
+
     # ── Build markdown report ──
     report = f"""# 🛡️ DockDesk Audit Report
 
@@ -1093,6 +1179,106 @@ def reporting_node(state: AuditState) -> AuditState:
     return {"report_path": "audit_report.md", "mermaid_graph": mermaid_graph}
 
 
+def _build_audit_tree(results: List[dict], workspace: str) -> dict:
+    """Build a nested directory tree from flat audit results for the dashboard.
+
+    Returns a tree structure like:
+    {
+        "name": "root",
+        "type": "dir",
+        "children": [
+            {
+                "name": "dockdesk",
+                "type": "dir",
+                "risk_counts": {"HIGH": 1, "MEDIUM": 0, "LOW": 2},
+                "children": [
+                    {
+                        "name": "cli.py",
+                        "type": "file",
+                        "status": "FAIL",
+                        "risk": "HIGH",
+                        "safe_to_push": false,
+                        "summary": "...",
+                        "code_model": "...",
+                        "reasoning_model": "...",
+                        "duration_ms": 1234
+                    }
+                ]
+            }
+        ]
+    }
+    """
+    root = {"name": os.path.basename(workspace) or "root", "type": "dir", "children": [], "risk_counts": {"HIGH": 0, "MEDIUM": 0, "LOW": 0}}
+
+    for res in results:
+        file_path = res.get("file", "unknown")
+        try:
+            rel = os.path.relpath(file_path, workspace)
+        except ValueError:
+            rel = file_path
+
+        # Normalize path separators
+        parts = rel.replace("\\", "/").split("/")
+
+        # Navigate/create tree structure
+        current = root
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:
+                # Leaf file node
+                file_node = {
+                    "name": part,
+                    "type": "file",
+                    "path": rel,
+                    "status": res.get("status", "UNKNOWN"),
+                    "risk": res.get("risk", "UNKNOWN"),
+                    "safe_to_push": res.get("safe_to_push", False),
+                    "summary": str(res.get("summary", "") or "")[:200],
+                    "fix": str(res.get("fix", "") or "")[:300],
+                    "reasoning": str(res.get("reasoning", "") or "")[:300],
+                    "code_model": res.get("code_model", ""),
+                    "reasoning_model": res.get("reasoning_model", ""),
+                    "duration_ms": res.get("duration_ms", 0),
+                }
+                current["children"].append(file_node)
+
+                # Propagate risk counts up to all parent directories
+                risk = res.get("risk", "UNKNOWN")
+                if risk in ("HIGH", "MEDIUM", "LOW"):
+                    # Walk back up the path to update all ancestors
+                    ancestor = root
+                    for ancestor_part in parts[:-1]:
+                        for child in ancestor.get("children", []):
+                            if child.get("type") == "dir" and child.get("name") == ancestor_part:
+                                child["risk_counts"][risk] = child["risk_counts"].get(risk, 0) + 1
+                                ancestor = child
+                                break
+                    # Also update root
+                    root["risk_counts"][risk] = root["risk_counts"].get(risk, 0) + 1
+            else:
+                # Directory node — find or create
+                found = None
+                for child in current.get("children", []):
+                    if child.get("type") == "dir" and child.get("name") == part:
+                        found = child
+                        break
+                if not found:
+                    found = {"name": part, "type": "dir", "children": [], "risk_counts": {"HIGH": 0, "MEDIUM": 0, "LOW": 0}}
+                    current["children"].append(found)
+                current = found
+
+    return root
+
+
+def _get_available_models_for_rotation() -> List[str]:
+    """Get all locally available audit-suitable models for multi-model rotation."""
+    try:
+        from .models import get_available_ollama_models, is_model_audit_suitable
+        available = get_available_ollama_models()
+        return [m for m in available if is_model_audit_suitable(m)]
+    except Exception:
+        return []
+
+
 def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str, reasoning_model: str):
     """Auto-generate dashboard_data.json after every run for the React dashboard."""
     try:
@@ -1129,6 +1315,21 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
                 "code_model": res.get("code_model", ""),
                 "reasoning_model": res.get("reasoning_model", ""),
             })
+
+        # Build audit tree from results for tree visualization
+        data["audit_tree"] = _build_audit_tree(results, workspace)
+
+        # Add available models list for multi-model display
+        data["available_models"] = _get_available_models_for_rotation()
+
+        # Collect distinct models actually used in this run
+        models_used = set()
+        for res in results:
+            if res.get("code_model"):
+                models_used.add(res["code_model"])
+            if res.get("reasoning_model"):
+                models_used.add(res["reasoning_model"])
+        data["models_used_this_run"] = sorted(models_used)
 
         # Write to both workspace root and dashboard/public for dev server
         for dest in [

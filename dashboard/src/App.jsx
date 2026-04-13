@@ -7,7 +7,10 @@ import ModelUsage from './components/ModelUsage'
 import RecentRuns from './components/RecentRuns'
 import FileResults from './components/FileResults'
 import PushSafety from './components/PushSafety'
-import { RefreshCw, WifiOff, Download } from 'lucide-react'
+import AuditTree from './components/AuditTree'
+import ExportPanel from './components/ExportPanel'
+import DiscordPanel from './components/DiscordPanel'
+import { RefreshCw, WifiOff, Download, FileSpreadsheet } from 'lucide-react'
 
 function App() {
   const [data, setData] = useState(null)
@@ -42,6 +45,29 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // Quick Excel export from header
+  const handleQuickExcelExport = async () => {
+    if (!data) return
+    try {
+      const XLSX = await import('xlsx')
+      const wb = XLSX.utils.book_new()
+
+      const files = data.latest_run_files || []
+      const headers = ['File', 'Status', 'Risk', 'Safe to Push', 'Summary', 'Code Model', 'Duration (s)']
+      const rows = files.map(f => [
+        f.file, f.status, f.risk, f.safe_to_push ? 'YES' : 'NO',
+        f.summary || '', f.code_model || '', (f.duration_ms / 1000).toFixed(1),
+      ])
+      const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
+      sheet['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 60 }, { wch: 22 }, { wch: 12 }]
+      XLSX.utils.book_append_sheet(wb, sheet, 'Audit Results')
+
+      XLSX.writeFile(wb, `DockDesk_Quick_Export_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (err) {
+      console.error('Quick export failed:', err)
+    }
+  }
+
   const mainMargin = sidebarCollapsed ? 'ml-16' : 'ml-56'
 
   if (loading && !data) {
@@ -75,10 +101,12 @@ function App() {
     )
   }
 
-  const { stats, timeline, recent_runs, dual_model, latest_run_files } = data
+  const { stats, timeline, recent_runs, dual_model, latest_run_files, audit_tree, available_models, models_used_this_run } = data
 
   const renderContent = () => {
     switch (activeView) {
+      case 'tree':
+        return <AuditTree tree={audit_tree} files={latest_run_files || []} />
       case 'files':
         return <FileResults files={latest_run_files || []} />
       case 'timeline':
@@ -86,21 +114,43 @@ function App() {
       case 'safety':
         return <PushSafety files={latest_run_files || []} />
       case 'models':
-        return <ModelUsage modelUsage={stats?.model_usage || {}} />
+        return (
+          <ModelUsage
+            modelUsage={stats?.model_usage || {}}
+            dualModel={dual_model}
+            modelsUsed={models_used_this_run}
+            availableModels={available_models}
+            latestFiles={latest_run_files || []}
+          />
+        )
       case 'runs':
         return <RecentRuns runs={recent_runs || []} />
+      case 'reports':
+        return <ExportPanel data={data} />
+      case 'discord':
+        return <DiscordPanel />
       case 'overview':
       default:
         return (
           <div className="space-y-6">
-            <StatsCards stats={stats} />
+            <StatsCards stats={stats} modelsUsed={models_used_this_run} files={latest_run_files || []} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <PushSafety files={latest_run_files || []} />
               <RiskChart riskTotals={stats?.risk_totals || { HIGH: 0, MEDIUM: 0, LOW: 0 }} />
             </div>
+            {/* Audit Tree on overview */}
+            {(audit_tree || (latest_run_files && latest_run_files.length > 0)) && (
+              <AuditTree tree={audit_tree} files={latest_run_files || []} />
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AuditTimeline timeline={timeline || []} />
-              <ModelUsage modelUsage={stats?.model_usage || {}} />
+              <ModelUsage
+                modelUsage={stats?.model_usage || {}}
+                dualModel={dual_model}
+                modelsUsed={models_used_this_run}
+                availableModels={available_models}
+                latestFiles={latest_run_files || []}
+              />
             </div>
             {latest_run_files && latest_run_files.length > 0 && (
               <FileResults files={latest_run_files} />
@@ -126,7 +176,11 @@ function App() {
           <div className="flex items-center justify-between px-6 h-14">
             <div className="flex items-center space-x-3">
               <h1 className="text-sm font-medium text-white capitalize">
-                {activeView === 'overview' ? 'Dashboard' : activeView.replace('-', ' ')}
+                {activeView === 'overview' ? 'Dashboard' :
+                 activeView === 'tree' ? 'Audit Tree' :
+                 activeView === 'reports' ? 'Export Reports' :
+                 activeView === 'discord' ? 'Discord Integration' :
+                 activeView.replace('-', ' ')}
               </h1>
               {dual_model && (
                 <span className="text-xs text-muted bg-white/5 px-2.5 py-1 rounded-full">
@@ -154,6 +208,15 @@ function App() {
               >
                 <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
                 <span>Refresh</span>
+              </button>
+
+              <button
+                onClick={handleQuickExcelExport}
+                className="flex items-center space-x-1.5 text-xs text-muted hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition print:hidden"
+                title="Quick Excel Export"
+              >
+                <FileSpreadsheet size={12} />
+                <span>Export Excel</span>
               </button>
 
               <button

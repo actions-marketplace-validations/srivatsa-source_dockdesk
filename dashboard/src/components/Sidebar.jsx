@@ -1,12 +1,15 @@
-import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle } from 'lucide-react'
 
 const NAV_ITEMS = [
   { id: 'overview', icon: BarChart3, label: 'Overview' },
+  { id: 'tree', icon: GitBranch, label: 'Audit Tree' },
   { id: 'files', icon: FileSearch, label: 'File Results' },
   { id: 'timeline', icon: Activity, label: 'Timeline' },
   { id: 'safety', icon: Shield, label: 'Push Safety' },
   { id: 'models', icon: Cpu, label: 'Models' },
   { id: 'runs', icon: Clock, label: 'Recent Runs' },
+  { id: 'reports', icon: FileSpreadsheet, label: 'Reports' },
+  { id: 'discord', icon: MessageCircle, label: 'Discord' },
 ]
 
 export default function Sidebar({ activeView, onNavigate, collapsed, onToggle }) {
@@ -31,7 +34,7 @@ export default function Sidebar({ activeView, onNavigate, collapsed, onToggle })
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-3 space-y-0.5 px-2">
+      <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
           const isActive = activeView === item.id

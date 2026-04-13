@@ -49,6 +49,8 @@ class DockDeskConfig:
     fix_model: str = ""      # Phase 2 fix-generation model (empty = use 'model') [DEPRECATED: use reasoning_model]
     reasoning_model: str = ""  # Logical reasoning model — DeepSeek-R1 (empty = use default)
     discord_webhook: str = ""  # Discord webhook URL for audit notifications
+    discord_bot_token: str = ""  # Discord bot token for slash-command bot mode
+    discord_bot_guild_id: str = ""  # Optional guild ID to scope slash command sync
     ollama_host: str = "http://localhost:11434"
     temperature: float = 0.1
     
@@ -76,6 +78,7 @@ class DockDeskConfig:
     # Advanced
     skip_rag: bool = False
     force_full_scan: bool = False
+    rotate_models: bool = False
     
     # Scaling (monorepo)
     include_patterns: str = ""   # Comma-separated globs, e.g. "src/**,lib/**"
@@ -97,6 +100,8 @@ class DockDeskConfig:
             "fix_model": self.fix_model,
             "reasoning_model": self.reasoning_model,
             "discord_webhook": self.discord_webhook,
+            "discord_bot_token": self.discord_bot_token,
+            "discord_bot_guild_id": self.discord_bot_guild_id,
             "ollama_host": self.ollama_host,
             "temperature": self.temperature,
             "auto_tune": self.auto_tune,
@@ -114,6 +119,7 @@ class DockDeskConfig:
             "changelog_file": self.changelog_file,
             "skip_rag": self.skip_rag,
             "force_full_scan": self.force_full_scan,
+            "rotate_models": self.rotate_models,
             "include_patterns": self.include_patterns,
             "exclude_patterns": self.exclude_patterns,
             "workers": self.workers,
@@ -234,6 +240,8 @@ def load_env_config() -> Dict[str, Any]:
         "DOCKDESK_FIX_MODEL": "fix_model",
         "DOCKDESK_REASONING_MODEL": "reasoning_model",
         "DOCKDESK_DISCORD_WEBHOOK": "discord_webhook",
+        "DOCKDESK_DISCORD_BOT_TOKEN": "discord_bot_token",
+        "DOCKDESK_DISCORD_BOT_GUILD_ID": "discord_bot_guild_id",
         "DOCKDESK_OLLAMA_HOST": "ollama_host",
         "DOCKDESK_OUTPUT_FORMAT": "output_format",
         "DOCKDESK_FAIL_ON_RISK": "fail_on_risk",
@@ -241,6 +249,7 @@ def load_env_config() -> Dict[str, Any]:
         "DOCKDESK_VERBOSE": "verbose",
         "DOCKDESK_SKIP_RAG": "skip_rag",
         "DOCKDESK_CHANGELOG": "enable_changelog",
+        "DOCKDESK_ROTATE_MODELS": "rotate_models",
         # Legacy support
         "MODEL_NAME": "model",
         "OLLAMA_URL": "ollama_host",
@@ -251,59 +260,70 @@ def load_env_config() -> Dict[str, Any]:
         value = os.getenv(env_var)
         if value is not None:
             # Type conversion
-            if config_key in ("auto_fix", "verbose", "skip_rag", "enable_changelog"):
+            if config_key in ("auto_fix", "verbose", "skip_rag", "enable_changelog", "rotate_models"):
                 value = value.lower() in ('true', '1', 'yes')
             result[config_key] = value
     
     return result
 
 
+def _apply_layer(config: "DockDeskConfig", layer: Dict[str, Any]) -> None:
+    """Apply a dict of settings to a config object with type coercion."""
+    for key, value in layer.items():
+        if not hasattr(config, key) or value is None:
+            continue
+        if key == "output_format" and isinstance(value, str):
+            value = OutputFormat(value)
+        elif key == "fail_on_risk" and isinstance(value, str):
+            value = RiskLevel.from_string(value)
+        setattr(config, key, value)
+
+
 def build_config(
     cli_args: Optional[Dict[str, Any]] = None,
-    workspace: str = "."
+    workspace: str = ".",
+    profile: Optional[str] = None,
 ) -> DockDeskConfig:
     """
-    Build configuration with priority: CLI > env > file > defaults
+    Build configuration with priority: CLI > env > workspace file > profile > global > defaults
     
     Args:
         cli_args: Arguments from CLI parser
         workspace: Workspace path for config file lookup
+        profile: Optional named profile to load
         
     Returns:
         Complete DockDeskConfig instance
     """
     # Start with defaults
     config = DockDeskConfig()
+
+    # Layer 0: Global config (~/.config/dockdesk/config.yml)
+    try:
+        from .profiles import get_global_config
+        _apply_layer(config, get_global_config())
+    except Exception:
+        pass
+
+    # Layer 0.5: Named profile
+    if profile:
+        try:
+            from .profiles import load_profile
+            _apply_layer(config, load_profile(profile))
+        except Exception:
+            pass
     
-    # Layer 1: Config file
-    file_config = load_config_file(workspace)
-    for key, value in file_config.items():
-        if hasattr(config, key):
-            if key == "output_format" and isinstance(value, str):
-                value = OutputFormat(value)
-            elif key == "fail_on_risk" and isinstance(value, str):
-                value = RiskLevel.from_string(value)
-            setattr(config, key, value)
+    # Layer 1: Workspace config file
+    _apply_layer(config, load_config_file(workspace))
     
     # Layer 2: Environment variables
-    env_config = load_env_config()
-    for key, value in env_config.items():
-        if hasattr(config, key):
-            if key == "output_format" and isinstance(value, str):
-                value = OutputFormat(value)
-            elif key == "fail_on_risk" and isinstance(value, str):
-                value = RiskLevel.from_string(value)
-            setattr(config, key, value)
+    _apply_layer(config, load_env_config())
     
     # Layer 3: CLI arguments (highest priority)
     if cli_args:
-        for key, value in cli_args.items():
-            if value is not None and hasattr(config, key):
-                if key == "output_format" and isinstance(value, str):
-                    value = OutputFormat(value)
-                elif key == "fail_on_risk" and isinstance(value, str):
-                    value = RiskLevel.from_string(value)
-                setattr(config, key, value)
+        # Filter out None values so defaults aren't overwritten
+        filtered = {k: v for k, v in cli_args.items() if v is not None}
+        _apply_layer(config, filtered)
     
     # Ensure workspace is absolute
     config.workspace = os.path.abspath(config.workspace)
@@ -326,10 +346,16 @@ temperature: 0.1
 # detect_model: deepseek-r1:1.5b    # Fast reasoning model for Phase 1 detection
 # fix_model: qwen2.5-coder:3b       # Code-capable model for Phase 2 fix generation
 
+# Discord
+# discord_webhook: https://discord.com/api/webhooks/...
+# discord_bot_token: <bot-token>
+# discord_bot_guild_id: <guild-id>
+
 # Behavior
 auto_tune: false      # Auto-select model based on codebase size
 auto_fix: false       # Automatically apply documentation fixes
 fix_code: false       # Also fix code (not just docs) - use with caution
+rotate_models: false  # Round-robin code analysis model per file (requires local models)
 
 # Output
 output_format: md     # md, json, or sarif

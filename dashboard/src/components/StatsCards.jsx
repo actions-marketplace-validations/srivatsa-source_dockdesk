@@ -1,7 +1,22 @@
-import { FileText, CheckCircle, Wrench, Clock } from 'lucide-react'
+import { FileText, CheckCircle, Wrench, Clock, TrendingUp, Cpu } from 'lucide-react'
 
-export default function StatsCards({ stats }) {
+export default function StatsCards({ stats, modelsUsed, files = [] }) {
   if (!stats) return null
+
+  // Calculate pass rate from latest_run_files or timeline data
+  const totalFiles = stats.total_files_audited ?? 0
+  const totalFixes = stats.total_fixes_applied ?? 0
+  const modelCount = modelsUsed?.length || Object.keys(stats.model_usage || {}).length || 0
+
+  // Compute pass/fail ratio from latest run status data when available.
+  const passCount = files.filter((f) => f.status === 'PASS').length
+  const failCount = files.filter((f) => f.status === 'FAIL').length
+  const passFailTotal = passCount + failCount
+  const riskTotals = stats.risk_totals || {}
+  const totalRisks = (riskTotals.HIGH || 0) + (riskTotals.MEDIUM || 0) + (riskTotals.LOW || 0)
+  const passRate = passFailTotal > 0
+    ? Math.round((passCount / passFailTotal) * 100)
+    : (totalRisks > 0 ? Math.round(((riskTotals.LOW || 0) / totalRisks) * 100) : 0)
 
   const cards = [
     {
@@ -19,6 +34,24 @@ export default function StatsCards({ stats }) {
       color: 'text-success',
       bg: 'bg-success-muted',
       sub: 'across all audits',
+    },
+    {
+      label: 'Pass Rate',
+      value: `${passRate}%`,
+      icon: TrendingUp,
+      color: passRate >= 70 ? 'text-success' : passRate >= 40 ? 'text-warning' : 'text-danger',
+      bg: passRate >= 70 ? 'bg-success-muted' : passRate >= 40 ? 'bg-warning-muted' : 'bg-danger-muted',
+      sub: passFailTotal > 0
+        ? `${passCount} pass / ${failCount} fail`
+        : `${riskTotals.LOW || 0} low risk of ${totalRisks}`,
+    },
+    {
+      label: 'Models Active',
+      value: modelCount,
+      icon: Cpu,
+      color: 'text-info',
+      bg: 'bg-info-muted',
+      sub: modelCount > 1 ? 'multi-model pipeline' : 'single model',
     },
     {
       label: 'Fixes Applied',
@@ -39,7 +72,7 @@ export default function StatsCards({ stats }) {
   ]
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
       {cards.map((card) => {
         const Icon = card.icon
         return (

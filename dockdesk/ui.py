@@ -236,3 +236,70 @@ def print_summary_card(total, pass_count, fail_count, high, med, low, report_pat
                           style=f"dim {DIM_PURPLE}"))
     )
     console.print()
+
+
+# ── Live Thinking Panel ────────────────────────────────────────────────────────
+
+class ThinkingPanel:
+    """Context manager that shows a live-updating panel of LLM reasoning tokens.
+
+    Usage:
+        with ThinkingPanel("reasoning_node") as panel:
+            for token in stream:
+                panel.update(token)
+    """
+
+    def __init__(self, label: str = "Agent is Thinking", max_lines: int = 12):
+        from rich.live import Live
+        self._label = label
+        self._max_lines = max_lines
+        self._tokens: list[str] = []
+        self._live: Live | None = None
+        self._text = ""
+
+    def _render(self) -> Panel:
+        # Show the last N lines of accumulated reasoning
+        lines = self._text.split("\n")
+        visible = lines[-self._max_lines:]  if len(lines) > self._max_lines else lines
+        display = "\n".join(visible)
+        if len(lines) > self._max_lines:
+            display = f"[dim]... ({len(lines) - self._max_lines} lines hidden)[/dim]\n" + display
+
+        return Panel(
+            Text.from_markup(f"[dim {ORCHID}]{display}[/dim {ORCHID}]") if display else Text("waiting for tokens...", style=f"dim {ORCHID}"),
+            title=Text(f"  🧠  {self._label}  ", style=f"bold {HOT_PINK}"),
+            border_style=f"dim {PURPLE}",
+            padding=(0, 2),
+            width=min(console.width, 100),
+        )
+
+    def __enter__(self) -> "ThinkingPanel":
+        from rich.live import Live
+        self._live = Live(self._render(), console=console, refresh_per_second=6, transient=True)
+        self._live.__enter__()
+        return self
+
+    def __exit__(self, *args) -> None:
+        if self._live:
+            self._live.__exit__(*args)
+        # Print a compact summary line after the live panel closes
+        char_count = len(self._text)
+        line_count = self._text.count("\n") + 1
+        t = Text()
+        t.append("  🧠  ", style=f"bold {HOT_PINK}")
+        t.append(f"Reasoning complete ", style=f"{ORCHID}")
+        t.append(f"({line_count} lines, {char_count} chars)", style=f"dim {PURPLE}")
+        console.print(t)
+
+    def update(self, token: str) -> None:
+        """Append a token and refresh the live display."""
+        self._text += token
+        if self._live:
+            self._live.update(self._render())
+
+    def set_text(self, full_text: str) -> None:
+        """Replace the entire buffer (used for non-streaming mode)."""
+        self._text = full_text
+        if self._live:
+            self._live.update(self._render())
+

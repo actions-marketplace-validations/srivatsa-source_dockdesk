@@ -224,100 +224,85 @@ def _browse_for_workspace(start_dir: Path) -> Path | None:
         console.print("[yellow][!] Invalid choice.[/yellow]")
 
 
-def _interactive_workspace_picker(default_base: Path) -> str | None:
-    """Choose a workspace from discovered projects or manual browse."""
-    base_dir = default_base.resolve()
-
-    while True:
-        console.print(Panel(
-            f"[bold #FF1493]DockDesk Interactive Mode[/bold #FF1493]\n"
-            f"[white]Scan root:[/white] [#FF69B4]{base_dir}[/#FF69B4]\n"
-            "[dim]Choose a detected project, rescan a different root, or open folder browser.[/dim]",
-            border_style="#8A2BE2"
-        ))
-
-        projects = _discover_projects(base_dir)
-        if projects:
-            _render_project_table(projects, base_dir)
-            console.print("[dim]Commands: number = select, b = browse, r = rescan root, q = quit[/dim]")
-        else:
-            console.print("[yellow][!] No project folders detected in this root.[/yellow]")
-            console.print("[dim]Commands: b = browse, r = rescan root, q = quit[/dim]")
-
-        choice = Prompt.ask("[#FF00FF]select[/#FF00FF]").strip().lower()
-
-        if choice == "q":
-            return None
-        if choice == "b":
-            selected = _browse_for_workspace(base_dir)
-            if selected:
-                return str(selected)
-            continue
-        if choice == "r":
-            new_root = Prompt.ask("[#DA70D6]New scan root[/#DA70D6]", default=str(base_dir)).strip()
-            if new_root:
-                candidate = Path(new_root).expanduser().resolve()
-                if candidate.exists() and candidate.is_dir():
-                    base_dir = candidate
-                else:
-                    console.print("[bold red][-] Invalid folder path.[/bold red]")
-            continue
-        if choice.isdigit() and projects:
-            idx = int(choice) - 1
-            if 0 <= idx < len(projects):
-                return str(projects[idx][0].resolve())
-        console.print("[yellow][!] Invalid choice.[/yellow]")
-
-
-def _interactive_main_menu() -> None:
-    """Main interactive flow for users running dockdesk with no args."""
+def _chat_interface() -> None:
+    """Main conversational flow for users running dockdesk with no args."""
     from dockdesk import __version__ as _ver
+    from dockdesk.chat import parse_intent
+    from dockdesk.ollama_pool import OllamaPool
+    import logging
 
-    _print_loading(skip=True, version=_ver)
-    workspace = _interactive_workspace_picker(Path.cwd())
-    if not workspace:
-        console.print("[dim]Session closed.[/dim]")
-        return
+    # Suppress httpx logs for cleaner chat
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Show startup animation when entering interactive CLI.
+    _print_loading(skip=False, version=_ver)
+    workspace = str(Path.cwd().resolve())
+
+    console.print(Panel(
+        f"[bold #FF1493]DockDesk Neural Chat Interface[/bold #FF1493]\n"
+        f"[white]Current Workspace:[/white] [#FF69B4]{workspace}[/#FF69B4]\n"
+        "[dim]Tell me what you want to do (e.g., 'run audit', 'show dashboard stats', 'change workspace to /path'). Type 'exit' to quit.[/dim]",
+        border_style="#8A2BE2"
+    ))
+
+    pool = OllamaPool([ "http://localhost:11434" ], run_health_check=False)
 
     while True:
-        menu = Table(show_header=False, box=None)
-        menu.add_column(style="bold #DA70D6", width=5)
-        menu.add_column(style="#FF69B4")
-        menu.add_row("1", "Run Audit")
-        menu.add_row("2", "List Models")
-        menu.add_row("3", "Open Dashboard Stats")
-        menu.add_row("4", "Init Config")
-        menu.add_row("5", "Change Workspace")
-        menu.add_row("6", "Exit")
+        try:
+            choice = Prompt.ask(f"\n[#FF00FF]dockdesk[/] [dim]({Path(workspace).name})[/] ❯").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Session closed.[/dim]")
+            return
 
-        console.print(Panel(
-            menu,
-            title=Text("[ Mission Menu ]", style="bold #FF1493"),
-            subtitle=Text(f"Workspace: {workspace}", style="#DA70D6"),
-            border_style="#8A2BE2"
-        ))
+        if not choice:
+            continue
 
-        choice = Prompt.ask("[#FF00FF]action[/#FF00FF]", default="1").strip()
+        intent = parse_intent(choice, pool=pool)
+        action = intent.get("action", "unknown")
 
-        if choice == "1":
-            opts = _interactive_audit_options(workspace)
-            if opts is not None:
-                run_audit(opts)
-        elif choice == "2":
-            list_models_cmd(argparse.Namespace())
-        elif choice == "3":
-            dashboard_cmd(argparse.Namespace(workspace=workspace, export=None))
-        elif choice == "4":
-            init_config_cmd(argparse.Namespace(workspace=workspace, force=False))
-        elif choice == "5":
-            picked = _interactive_workspace_picker(Path(workspace))
-            if picked:
-                workspace = picked
-        elif choice == "6":
+        if action == "exit":
             console.print("[dim]Session closed.[/dim]")
             return
+        elif action == "audit":
+            target = intent.get("workspace", "current")
+            selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target)
+            if selected is None:
+                continue
+
+            target_ws, include_pattern = selected
+            opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
+            if opts is not None:
+                # Marker used to avoid replaying startup animation inside chat-triggered audit.
+                opts._from_chat = True
+                run_audit(opts)
+        elif action == "dashboard":
+            section = intent.get("section", "summary")
+            dashboard_cmd(argparse.Namespace(workspace=workspace, export=None, section=section, open=False))
+        elif action == "open_react_dashboard":
+            open_react_dashboard_cmd(argparse.Namespace(workspace=workspace))
+        elif action == "change_workspace":
+            path = intent.get("path", "browse")
+            if path == "browse":
+                picked = _browse_for_workspace(Path(workspace))
+                if picked:
+                    workspace = str(picked.resolve())
+            else:
+                cand = Path(path).expanduser().resolve()
+                if cand.exists() and cand.is_dir():
+                    workspace = str(cand)
+                    console.print(f"[green]Workspace changed to: {workspace}[/green]")
+                else:
+                    console.print(f"[bold red][-] Invalid folder path: {path}[/bold red]")
+        elif action == "list_models":
+            list_models_cmd(argparse.Namespace())
+        elif action == "init_config":
+            init_config_cmd(argparse.Namespace(workspace=workspace, force=False))
+        elif action == "open_tui":
+            from dockdesk.tui import launch_tui
+            launch_tui(workspace)
         else:
-            console.print("[yellow][!] Invalid choice.[/yellow]")
+            msg = intent.get("message", "I didn't quite get that. Try 'run audit', 'show dashboard', or 'list models'.")
+            console.print(f"[yellow]{msg}[/yellow]")
 
 
 def _prompt_bool(label: str, default: bool = False) -> bool:
@@ -327,7 +312,75 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
     return value in {"y", "yes", "true", "1"}
 
 
-def _interactive_audit_options(workspace: str) -> argparse.Namespace | None:
+def _prompt_audit_target(current_workspace: str, suggested_target: str = "current") -> tuple[str, str | None] | None:
+    """Ask and validate audit target path (file or folder) before starting an audit.
+
+    Returns:
+        (workspace_dir, include_pattern_if_file)
+    """
+
+    current = Path(current_workspace).expanduser().resolve()
+
+    def _resolve_user_path(raw: str) -> Path:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = (current / p)
+        return p.resolve()
+
+    # Pre-fill with NL suggestion only when it resolves to a real local path.
+    default_target = "."
+    if suggested_target and suggested_target != "current":
+        try:
+            cand = _resolve_user_path(suggested_target)
+            if cand.exists():
+                default_target = str(cand)
+        except Exception:
+            pass
+
+    console.print(Panel(
+        "[bold #FF1493]Audit Target[/bold #FF1493]\n"
+        "[dim]Choose what to audit first. You can provide a file or folder path.\n"
+        "Use '.' for current workspace, 'b' to browse folders, or 'q' to cancel.[/dim]",
+        border_style="#8A2BE2",
+    ))
+
+    while True:
+        raw = Prompt.ask("[#DA70D6]Path to audit (file/folder)[/#DA70D6]", default=default_target).strip()
+
+        if raw.lower() == "q":
+            return None
+        if raw.lower() == "b":
+            picked = _browse_for_workspace(current)
+            if not picked:
+                continue
+            return str(picked.resolve()), None
+        if raw == ".":
+            return str(current), None
+
+        try:
+            target = _resolve_user_path(raw)
+        except Exception:
+            console.print("[yellow][!] Invalid path format. Try again.[/yellow]")
+            continue
+
+        if not target.exists():
+            console.print(f"[bold red][-] Path not found: {target}[/bold red]")
+            continue
+
+        if target.is_file():
+            ws = target.parent.resolve()
+            include = target.name
+            console.print(f"[green][+] Auditing file:[/green] {target}")
+            return str(ws), include
+
+        if target.is_dir():
+            console.print(f"[green][+] Auditing folder:[/green] {target}")
+            return str(target.resolve()), None
+
+        console.print("[yellow][!] Unsupported target type. Choose a file or folder.[/yellow]")
+
+
+def _interactive_audit_options(workspace: str, include_pattern: str | None = None) -> argparse.Namespace | None:
     """Collect quick audit options from interactive mode."""
     console.print(Panel(
         "[bold #FF1493]Quick Audit Options[/bold #FF1493]\n"
@@ -348,6 +401,7 @@ def _interactive_audit_options(workspace: str) -> argparse.Namespace | None:
 
     skip_rag = _prompt_bool("[#DA70D6]Skip RAG for speed?[/#DA70D6]", default=False)
     fast_mode = _prompt_bool("[#DA70D6]Enable fast mode?[/#DA70D6]", default=False)
+    rotate_models = _prompt_bool("[#DA70D6]Rotate code models per file?[/#DA70D6]", default=False)
     turbo = _prompt_bool("[#DA70D6]Enable turbo mode?[/#DA70D6]", default=False)
     apply_fixes = _prompt_bool("[#DA70D6]Apply documentation fixes?[/#DA70D6]", default=False)
     fix_code = _prompt_bool("[#DA70D6]Also allow code fixes?[/#DA70D6]", default=False) if apply_fixes else False
@@ -371,7 +425,7 @@ def _interactive_audit_options(workspace: str) -> argparse.Namespace | None:
         skip_rag=skip_rag,
         max_files=None,
         max_file_size=None,
-        include=None,
+        include=include_pattern,
         exclude=None,
         workers=None,
         ollama_urls=None,
@@ -383,6 +437,7 @@ def _interactive_audit_options(workspace: str) -> argparse.Namespace | None:
         keep_clone=False,
         rules=None,
         force_full_scan=None,
+        rotate_models=rotate_models,
     )
 
 
@@ -426,7 +481,8 @@ def run_audit(args):
     from dockdesk.models import (
         auto_select_model, validate_model, get_model_info,
         get_model_recommendation_message, count_lines_of_code,
-        DEFAULT_MODEL, DEFAULT_REASONING_MODEL
+        DEFAULT_MODEL, DEFAULT_REASONING_MODEL,
+        get_available_ollama_models, is_model_audit_suitable,
     )
     from dockdesk.changelog import ChangelogWriter
     from dockdesk.fixer import apply_fixes_batch
@@ -466,6 +522,7 @@ def run_audit(args):
         "respect_gitignore": not getattr(args, 'no_gitignore', False) if hasattr(args, 'no_gitignore') else None,
         "turbo": getattr(args, 'turbo', None),
         "force_full_scan": getattr(args, 'force_full_scan', None),
+        "rotate_models": getattr(args, 'rotate_models', None),
     }
 
     # Parse --rules into list
@@ -473,7 +530,11 @@ def run_audit(args):
     if rules_str:
         cli_args["custom_rules"] = [r.strip() for r in rules_str.split(",") if r.strip()]
 
-    config = build_config(cli_args, resolved_workspace)
+    profile_name = getattr(args, 'profile', None)
+    config = build_config(cli_args, resolved_workspace, profile=profile_name)
+
+    if profile_name:
+        console.print(f"[dim]  Profile: {profile_name}[/dim]")
 
     # Apply turbo overrides (aggressive speed defaults)
     if config.turbo:
@@ -498,8 +559,15 @@ def run_audit(args):
     if not config.reasoning_model and config.fix_model:
         reasoning_model = config.fix_model
 
-    # Skip animation in fast/CI mode for ~600ms savings
-    skip_animation = bool(config.fast_mode or config.ci_mode or getattr(args, 'turbo', False) or os.environ.get('CI'))
+    # In chat mode, startup animation is already shown on CLI entry.
+    from_chat = bool(getattr(args, '_from_chat', False))
+    skip_animation = bool(
+        from_chat
+        or config.fast_mode
+        or config.ci_mode
+        or getattr(args, 'turbo', False)
+        or os.environ.get('CI')
+    )
     from dockdesk import __version__ as _ver
     _print_loading(skip=skip_animation, version=_ver)
 
@@ -539,6 +607,15 @@ def run_audit(args):
         out_format=config.output_format.name,
         risk_thres=config.fail_on_risk.name
     )
+
+    if getattr(config, "rotate_models", False):
+        available = [m for m in get_available_ollama_models() if is_model_audit_suitable(m)]
+        if available:
+            preview = ", ".join(available[:6])
+            more = f" (+{len(available) - 6} more)" if len(available) > 6 else ""
+            console.print(f"[dim]  Rotation: enabled ({len(available)} models) -> {preview}{more}[/dim]")
+        else:
+            console.print("[dim]  Rotation: requested but no local audit-suitable models were found[/dim]")
 
     changelog = ChangelogWriter(workspace, config.changelog_file) if config.enable_changelog else None
     app = create_audit_graph()
@@ -754,8 +831,73 @@ def setup_cmd(args):
     run_setup(skip_install=args.skip_install, models=models)
 
 
+def discord_bot_cmd(args):
+    """Launch Discord slash-command bot mode."""
+    token = args.token or os.environ.get("DOCKDESK_DISCORD_BOT_TOKEN", "")
+    if not token:
+        console.print("[bold red][-] Missing Discord bot token. Use --token or DOCKDESK_DISCORD_BOT_TOKEN.[/bold red]")
+        return
+
+    workspace = os.path.abspath(args.workspace)
+    guild_id = args.guild_id
+
+    console.print("[white][*] Starting Discord bot mode...[/white]")
+    console.print(f"[dim]  Workspace: {workspace}[/dim]")
+    if guild_id:
+        console.print(f"[dim]  Guild sync: {guild_id}[/dim]")
+    else:
+        console.print("[dim]  Guild sync: global (may take longer for command propagation)[/dim]")
+
+    from dockdesk.discord import run_discord_bot
+    run_discord_bot(workspace=workspace, token=token, guild_id=guild_id)
+
+
+def open_react_dashboard_cmd(args):
+    """Export data and open the React dashboard."""
+    workspace = os.path.abspath(args.workspace)
+    history = os.path.join(workspace, "audit_history.jsonl")
+    
+    install_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dashboard_dir = os.path.join(install_dir, "dashboard")
+    public_dir = os.path.join(dashboard_dir, "public")
+    data_file = os.path.join(public_dir, "dashboard_data.json")
+
+    # Export audit data if history exists
+    os.makedirs(public_dir, exist_ok=True)
+    if os.path.exists(history):
+        console.print("[white]📊 Exporting audit data...[/white]")
+        # Export logic internally
+        dashboard_cmd(argparse.Namespace(workspace=workspace, export=data_file, open=False))
+        console.print("[green]   ✓ Data exported[/green]")
+    else:
+        console.print("[yellow]⚠️  No audit history yet — dashboard will show sample data[/yellow]")
+
+    # Check if node is available
+    npx = shutil.which("npx")
+    if not npx:
+        console.print("\n[bold red]❌ Node.js not found! Install from: https://nodejs.org[/bold red]")
+        return
+
+    # Install deps if needed
+    node_modules = os.path.join(dashboard_dir, "node_modules")
+    if not os.path.exists(node_modules):
+        console.print("[white]📦 Installing dashboard dependencies (first time only)...[/white]")
+        subprocess.run(["npm", "install"], cwd=dashboard_dir, capture_output=True, shell=True)
+
+    # Start Vite dev server
+    console.print("[green]🚀 Starting dashboard at http://localhost:3000[/green]")
+    console.print("[dim]   Press Ctrl+C to stop[/dim]\n")
+    try:
+        subprocess.run(["npx", "vite", "--port", "3000", "--open"], cwd=dashboard_dir, shell=True)
+    except KeyboardInterrupt:
+        console.print("\n\n[green]✓ Dashboard stopped[/green]")
+
+
 def dashboard_cmd(args):
     """Launch the dashboard or export data."""
+    if getattr(args, 'open', False):
+        return open_react_dashboard_cmd(args)
+        
     from dockdesk.changelog import ChangelogReader
 
     changelog_path = os.path.join(args.workspace, "audit_history.jsonl")
@@ -773,6 +915,49 @@ def dashboard_cmd(args):
             json.dump(data, f, indent=2, default=str)
         console.print(f"[green]✓ Exported dashboard data: {export_path}[/green]")
     else:
+        section = getattr(args, 'section', 'summary')
+        if section == "high_risk":
+            runs = reader.get_runs(limit=10)
+            if not runs:
+                console.print("[white]No recent runs to check for high risk issues.[/white]")
+                return
+            
+            console.print(f"\n[bold red]High Risk Summary (Last {len(runs)} Audits)[/bold red]")
+            found = False
+            for r in runs:
+                high = r.get("risk_distribution", {}).get("HIGH", 0)
+                if high > 0:
+                    found = True
+                    console.print(f"Run {r.get('timestamp')[:16].replace('T', ' ')}: [red]{high} HIGH RISK issues[/red]")
+            if not found:
+                console.print("[green]No HIGH RISK issues in recent audits. Great job![/green]")
+            console.print("[dim]Use --export to view full details in the React dashboard.[/dim]\n")
+            return
+            
+        elif section == "recent":
+            runs = reader.get_runs(limit=5)
+            if not runs:
+                console.print("[white]No recent runs.[/white]")
+                return
+            
+            table = Table(title="Recent Audit Runs", show_header=True)
+            table.add_column("Date", style="dim")
+            table.add_column("Files")
+            table.add_column("Pass", style="green")
+            table.add_column("Fail", style="red")
+            
+            for r in runs:
+                date = r.get("timestamp", "")[:16].replace("T", " ")
+                files = str(r.get("files_audited", 0))
+                passed = str(r.get("pass_count", 0))
+                fail = str(r.get("fail_count", 0))
+                table.add_row(date, files, passed, fail)
+            console.print()
+            console.print(table)
+            console.print()
+            return
+
+        # default to summary
         stats = reader.get_stats_summary()
         console.print(Panel.fit(
             f"[bold cyan]DockDesk Audit Statistics[/bold cyan]\n\n"
@@ -847,15 +1032,34 @@ def add_audit_args(parser):
                             help="Comma-separated custom audit rules injected into LLM prompts")
     scale_group.add_argument("--force-full-scan", action="store_true", default=None,
                             help="Skip git/merkle diff, audit ALL discovered files")
+    scale_group.add_argument("--rotate-models", action="store_true", default=None,
+                            help="Round-robin code analysis across local audit-suitable models")
 
 
 def main():
     """Main entry point for the dockdesk CLI."""
     from dockdesk import __version__
+    import sys
 
-    # No args -> interactive mode with project picker and themed menus.
+    try:
+        from dockdesk.models import get_available_ollama_models
+        from dockdesk.setup import run_setup
+        from rich.console import Console
+        
+        console = Console()
+        
+        # If no models are available and the user just typed 'dockdesk'
+        if not get_available_ollama_models() and len(sys.argv) <= 1:
+            console.print("\n[bold yellow]Welcome to DockDesk![/bold yellow] No local models detected.")
+            console.print("[dim]Starting first-run setup to install Ollama and recommended models...[/dim]\n")
+            run_setup(skip_install=False)
+            console.print("\n[green]Setup complete. Starting interactive chat interface...[/green]\n")
+    except Exception:
+        pass
+
+    # No args -> chat interface
     if len(sys.argv) == 1:
-        _interactive_main_menu()
+        _chat_interface()
         return
 
     parser = argparse.ArgumentParser(
@@ -866,12 +1070,15 @@ def main():
 Examples:
   dockdesk audit /path/to/repo             # Audit a target repo
   dockdesk audit --auto-tune --fix         # Auto-select model + auto-fix
-  dockdesk audit --model codellama:7b      # Use specific model
+  dockdesk audit --profile strict          # Use the 'strict' profile
   dockdesk audit --ci --fail-on-risk HIGH  # CI mode
   dockdesk audit --format sarif            # SARIF output for VS Code
   dockdesk list-models                     # Show available models
-  dockdesk init --workspace /path          # Create config file
-  dockdesk dashboard --workspace /path     # View audit stats
+  dockdesk profile list                    # List available profiles
+  dockdesk tui                             # Interactive terminal dashboard
+  dockdesk completion                      # Shell completion setup
+  dockdesk dashboard --open                # Launch React dashboard
+    dockdesk discord-bot --workspace .       # Run Discord slash-command bot
   dockdesk setup                           # Install Ollama + pull models
         """
     )
@@ -897,6 +1104,7 @@ Examples:
     dash_parser = subparsers.add_parser("dashboard", help="View or export audit statistics")
     dash_parser.add_argument("--workspace", default=".", help="Workspace path")
     dash_parser.add_argument("--export", metavar="FILE", help="Export data to JSON file")
+    dash_parser.add_argument("--open", action="store_true", help="Launch the React visual dashboard")
     dash_parser.set_defaults(func=dashboard_cmd)
 
     # setup subcommand
@@ -907,8 +1115,42 @@ Examples:
                               help="Comma-separated list of models to pull (overrides defaults)")
     setup_parser.set_defaults(func=setup_cmd)
 
+    # discord-bot subcommand
+    dcb_parser = subparsers.add_parser("discord-bot", help="Run Discord bot with slash commands")
+    dcb_parser.add_argument("--workspace", default=".", help="Workspace path")
+    dcb_parser.add_argument("--token", default=None, help="Discord bot token (or DOCKDESK_DISCORD_BOT_TOKEN)")
+    dcb_parser.add_argument("--guild-id", type=int, default=None, help="Optional guild ID for faster slash-command sync")
+    dcb_parser.set_defaults(func=discord_bot_cmd)
+
+    # profile subcommand
+    profile_parser = subparsers.add_parser("profile", help="Manage audit profiles")
+    profile_sub = profile_parser.add_subparsers(dest="profile_action")
+    profile_sub.add_parser("list", help="List available profiles")
+    profile_create = profile_sub.add_parser("create", help="Create a new profile")
+    profile_create.add_argument("name", help="Profile name")
+    profile_show = profile_sub.add_parser("show", help="Show profile details")
+    profile_show.add_argument("name", help="Profile name")
+    profile_init = profile_sub.add_parser("init", help="Initialize global config")
+
+    # tui subcommand
+    tui_parser = subparsers.add_parser("tui", help="Interactive terminal dashboard")
+    tui_parser.add_argument("--workspace", default=".", help="Workspace path")
+
+    # completion subcommand
+    comp_parser = subparsers.add_parser("completion", help="Shell completion setup")
+    comp_parser.add_argument("shell", nargs="?", default="auto",
+                            choices=["bash", "zsh", "fish", "auto"],
+                            help="Shell type (default: auto-detect)")
+
     # Backward compat: audit args on root parser
     add_audit_args(parser)
+
+    # Enable argcomplete if available
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
 
     args = parser.parse_args()
 
@@ -920,8 +1162,76 @@ Examples:
         dashboard_cmd(args)
     elif args.command == "setup":
         setup_cmd(args)
+    elif args.command == "discord-bot":
+        discord_bot_cmd(args)
+    elif args.command == "profile":
+        _handle_profile_cmd(args)
+    elif args.command == "tui":
+        from dockdesk.tui import launch_tui
+        launch_tui(os.path.abspath(args.workspace))
+    elif args.command == "completion":
+        _handle_completion_cmd(args)
     else:
         run_audit(args)
+
+
+def _handle_profile_cmd(args) -> None:
+    """Handle `dockdesk profile` subcommands."""
+    from dockdesk.profiles import (
+        list_profiles, print_profile_list, print_profile_detail,
+        create_profile, init_global_config
+    )
+
+    action = getattr(args, 'profile_action', None)
+    if action == "list":
+        print_profile_list()
+    elif action == "create":
+        path = create_profile(args.name)
+        console.print(f"[green]✓ Profile created: {path}[/green]")
+    elif action == "show":
+        print_profile_detail(args.name)
+    elif action == "init":
+        path = init_global_config()
+        console.print(f"[green]✓ Global config: {path}[/green]")
+    else:
+        print_profile_list()
+
+
+def _handle_completion_cmd(args) -> None:
+    """Print shell completion setup instructions."""
+    shell = args.shell
+    if shell == "auto":
+        shell = os.environ.get("SHELL", "").split("/")[-1] or "bash"
+
+    console.print(Panel(
+        f"[bold #FF1493]Shell Completion Setup ({shell})[/bold #FF1493]\n",
+        border_style="#8A2BE2",
+    ))
+
+    if shell == "bash":
+        console.print(
+            '  [#DA70D6]1.[/#DA70D6] [white]pip install argcomplete[/white]\n'
+            '  [#DA70D6]2.[/#DA70D6] [white]Add to ~/.bashrc:[/white]\n'
+            '     [#FF69B4]eval "$(register-python-argcomplete dockdesk)"[/#FF69B4]\n'
+            '  [#DA70D6]3.[/#DA70D6] [white]Restart your shell[/white]'
+        )
+    elif shell == "zsh":
+        console.print(
+            '  [#DA70D6]1.[/#DA70D6] [white]pip install argcomplete[/white]\n'
+            '  [#DA70D6]2.[/#DA70D6] [white]Add to ~/.zshrc:[/white]\n'
+            '     [#FF69B4]autoload -U bashcompinit && bashcompinit[/#FF69B4]\n'
+            '     [#FF69B4]eval "$(register-python-argcomplete dockdesk)"[/#FF69B4]\n'
+            '  [#DA70D6]3.[/#DA70D6] [white]Restart your shell[/white]'
+        )
+    elif shell == "fish":
+        console.print(
+            '  [#DA70D6]1.[/#DA70D6] [white]pip install argcomplete[/white]\n'
+            '  [#DA70D6]2.[/#DA70D6] [white]Run:[/white]\n'
+            '     [#FF69B4]register-python-argcomplete --shell fish dockdesk > ~/.config/fish/completions/dockdesk.fish[/#FF69B4]\n'
+            '  [#DA70D6]3.[/#DA70D6] [white]Restart your shell[/white]'
+        )
+    else:
+        console.print(f"[yellow]Unsupported shell: {shell}[/yellow]")
 
 
 if __name__ == "__main__":
