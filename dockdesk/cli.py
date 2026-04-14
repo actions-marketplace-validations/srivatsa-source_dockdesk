@@ -361,8 +361,15 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
                         found_path = (PathLib(root) / raw).resolve()
                         if found_path not in matches:
                             matches.append(found_path)
+                            if len(matches) >= 5:
+                                return matches
             except (PermissionError, OSError):
                 pass
+            
+            # If we found matches in one of the specific directories, stop scanning others
+            # to avoid deep scans of C:\ when matches already exist.
+            if matches:
+                break
                 
         return matches
 
