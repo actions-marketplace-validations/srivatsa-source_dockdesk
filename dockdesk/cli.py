@@ -321,21 +321,86 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
 
     current = Path(current_workspace).expanduser().resolve()
 
-    def _resolve_user_path(raw: str) -> Path:
-        p = Path(raw).expanduser()
-        if not p.is_absolute():
-            p = (current / p)
-        return p.resolve()
+    def _resolve_user_path(raw: str) -> list[Path]:
+        raw_path = Path(raw).expanduser()
+        if raw_path.is_absolute() and raw_path.exists():
+            return [raw_path.resolve()]
+        
+        rel_cand = (current / raw_path).resolve()
+        if rel_cand.exists():
+            return [rel_cand]
+            
+        # Agentic OS Discovery phase
+        import os
+        from pathlib import Path as PathLib
+        
+        console.print(f"[dim]Agentic Search: Target '{raw}' not found locally. Scanning common directories...[/dim]")
+        
+        search_dirs = []
+        user_home = PathLib.home()
+        for fd in ["Documents", "Desktop", "Downloads"]:
+            p = user_home / fd
+            if p.exists():
+                search_dirs.append(p)
+                
+        # Add root fallback for Windows safely if needed
+        if os.name == "nt":
+            search_dirs.append(PathLib("C:\\"))
+        else:
+            search_dirs.append(PathLib("/"))
 
-    # Pre-fill with NL suggestion only when it resolves to a real local path.
-    default_target = "."
+        skip_dirs = {"node_modules", ".git", "AppData", "Windows", "Program Files"}
+        
+        matches = []
+        for search_root in search_dirs:
+            try:
+                for root, dirs, files in os.walk(search_root):
+                    dirs[:] = [d for d in dirs if d not in skip_dirs]
+                    
+                    if raw in dirs:
+                        found_path = (PathLib(root) / raw).resolve()
+                        if found_path not in matches:
+                            matches.append(found_path)
+            except (PermissionError, OSError):
+                pass
+                
+        return matches
+
+    def _select_from_matches(matches: list[Path], raw: str) -> Path | None:
+        if not matches:
+            return None
+        if len(matches) == 1:
+            console.print(f"[green][+] Agentic Match Found:[/green] {matches[0]}")
+            return matches[0]
+
+        console.print(f"\n[yellow][*] Multiple matches found for '{raw}':[/yellow]")
+        for idx, match in enumerate(matches, 1):
+            console.print(f"[#DA70D6]{idx}[/#DA70D6] [#FF69B4]{match}[/#FF69B4]")
+            
+        while True:
+            choice = Prompt.ask(f"[#FF00FF]Select a target (1-{len(matches)}) or 'q' to cancel[/#FF00FF]").strip()
+            if choice.lower() == 'q':
+                return None
+            if choice.isdigit():
+                idx = int(choice)
+                if 1 <= idx <= len(matches):
+                    return matches[idx - 1]
+            console.print("[yellow][!] Invalid choice.[/yellow]")
+
+    # Check the initial suggestion first. If successfully resolved & chosen, skip the default prompt entirely.
     if suggested_target and suggested_target != "current":
-        try:
-            cand = _resolve_user_path(suggested_target)
-            if cand.exists():
-                default_target = str(cand)
-        except Exception:
-            pass
+        matches = _resolve_user_path(suggested_target)
+        target = _select_from_matches(matches, suggested_target)
+        if target:
+            if target.is_file():
+                ws = target.parent.resolve()
+                include = target.name
+                console.print(f"[green][+] Auditing file:[/green] {target}")
+                return str(ws), include
+
+            if target.is_dir():
+                console.print(f"[green][+] Auditing folder:[/green] {target}")
+                return str(target.resolve()), None
 
     console.print(Panel(
         "[bold #FF1493]Audit Target[/bold #FF1493]\n"
@@ -345,7 +410,7 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
     ))
 
     while True:
-        raw = Prompt.ask("[#DA70D6]Path to audit (file/folder)[/#DA70D6]", default=default_target).strip()
+        raw = Prompt.ask("[#DA70D6]Path to audit (file/folder)[/#DA70D6]", default=".").strip()
 
         if raw.lower() == "q":
             return None
@@ -357,10 +422,11 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
         if raw == ".":
             return str(current), None
 
-        try:
-            target = _resolve_user_path(raw)
-        except Exception:
-            console.print("[yellow][!] Invalid path format. Try again.[/yellow]")
+        matches = _resolve_user_path(raw)
+        target = _select_from_matches(matches, raw)
+        
+        if not target:
+            console.print("[yellow][!] Target not found or selection cancelled. Try again.[/yellow]")
             continue
 
         if not target.exists():
