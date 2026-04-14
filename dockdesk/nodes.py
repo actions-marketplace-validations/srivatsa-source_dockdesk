@@ -691,6 +691,10 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
     mode_tag = "batched" if use_batching else "individual"
     console.print(f"[dim]  └─ Code analysis ({mode_tag}): [green]{passes} PASS[/green], [red]{fails} FAIL/ERR[/red], {cached_count} cached[/dim]")
 
+    from dockdesk.orchestrator import execute_analysis
+    state.setdefault("orchestration_metrics", {})
+    state["code_findings"] = code_findings
+    state = execute_analysis(state)
     return {"code_findings": code_findings}
 
 
@@ -962,6 +966,10 @@ Rules:
         audit_results = _plugin_mgr.run_post_hooks(audit_results)
         console.print(f"[dim]  \u2514\u2500 Plugins: post_audit hooks applied[/dim]")
 
+    from dockdesk.orchestrator import execute_analysis
+    state.setdefault("orchestration_metrics", {})
+    state["audit_results"] = audit_results
+    state = execute_analysis(state)
     return {"audit_results": audit_results}
 
 
@@ -1174,7 +1182,7 @@ def reporting_node(state: AuditState) -> AuditState:
     console.print(f"[dim]  └─ Report → {report_path}[/dim]")
 
     # ── Auto-export dashboard data ──
-    _auto_export_dashboard(workspace, results, model_name, reasoning_model)
+    _auto_export_dashboard(workspace, results, model_name, reasoning_model, state)
         
     return {"report_path": "audit_report.md", "mermaid_graph": mermaid_graph}
 
@@ -1279,7 +1287,7 @@ def _get_available_models_for_rotation() -> List[str]:
         return []
 
 
-def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str, reasoning_model: str):
+def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str, reasoning_model: str, state: dict = {}):
     """Auto-generate dashboard_data.json after every run for the React dashboard."""
     try:
         from .changelog import ChangelogReader, DEFAULT_CHANGELOG_FILE
@@ -1330,6 +1338,7 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
             if res.get("reasoning_model"):
                 models_used.add(res["reasoning_model"])
         data["models_used_this_run"] = sorted(models_used)
+        data["orchestration_metrics"] = state.get("orchestration_metrics", {})
 
         # Write to both workspace root and dashboard/public for dev server
         for dest in [

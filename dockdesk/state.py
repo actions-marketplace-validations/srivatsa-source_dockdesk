@@ -35,3 +35,6 @@ class AuditState(TypedDict):
     
     # Metadata
     run_metadata: Optional[Dict]
+    
+    # Orchestration and metrics
+    orchestration_metrics: Optional[Dict[str, Any]]

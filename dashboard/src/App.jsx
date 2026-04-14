@@ -10,6 +10,7 @@ import PushSafety from './components/PushSafety'
 import AuditTree from './components/AuditTree'
 import ExportPanel from './components/ExportPanel'
 import DiscordPanel from './components/DiscordPanel'
+import AnomaliesPanel from './components/AnomaliesPanel'
 import { RefreshCw, WifiOff, Download, FileSpreadsheet } from 'lucide-react'
 
 function App() {
@@ -113,6 +114,8 @@ function App() {
         return <AuditTimeline timeline={timeline || []} />
       case 'safety':
         return <PushSafety files={latest_run_files || []} />
+      case 'anomalies':
+        return <AnomaliesPanel metrics={data.orchestration_metrics || {}} />
       case 'models':
         return (
           <ModelUsage

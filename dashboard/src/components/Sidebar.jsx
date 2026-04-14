@@ -1,4 +1,4 @@
-import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle } from 'lucide-react'
+import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle, AlertTriangle } from 'lucide-react'
 
 const NAV_ITEMS = [
   { id: 'overview', icon: BarChart3, label: 'Overview' },
@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { id: 'files', icon: FileSearch, label: 'File Results' },
   { id: 'timeline', icon: Activity, label: 'Timeline' },
   { id: 'safety', icon: Shield, label: 'Push Safety' },
+  { id: 'anomalies', icon: AlertTriangle, label: 'Anomalies' },
   { id: 'models', icon: Cpu, label: 'Models' },
   { id: 'runs', icon: Clock, label: 'Recent Runs' },
   { id: 'reports', icon: FileSpreadsheet, label: 'Reports' },

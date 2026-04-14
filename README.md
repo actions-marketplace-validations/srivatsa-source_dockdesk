@@ -519,6 +519,7 @@ npx vercel --prod
 | Audit Tree | Hierarchical file tree with per-folder risk totals and file details |
 | Risk Distribution | Pie chart of LOW / MEDIUM / HIGH findings |
 | Model Usage | Bar chart, model rotation summary, and available-model inventory |
+| Orchestration Anomalies | Real-time monitoring of LLM execution, fallback routing, and pipeline dropoff |
 | Export Panel | Excel, CSV, and print/PDF export options |
 | Discord Panel | Webhook setup and test ping preview |
 | Recent Runs | List of recent audits with status indicators |
