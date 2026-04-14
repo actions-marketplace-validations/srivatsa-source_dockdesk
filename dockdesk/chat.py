@@ -11,7 +11,7 @@ console = Console()
 _QUICK_MATCHERS = {
     r"^(?:quit|exit|q)$": {"action": "exit"},
     r"^(?:list models|models)$": {"action": "list_models"},
-    r"^(?:run )?audit$": {"action": "audit", "workspace": "current"},
+    r"^(?:run )?audit(?:\\s+(?:on\\s+)?(.+))?$": {"action": "audit"},
     r"^dashboard(?: stats)?$": {"action": "dashboard", "section": "summary"},
     r"^(?:open|launch|start|run) (?:react )?dashboard$": {"action": "open_react_dashboard"},
     r"^(?:init|init config)$": {"action": "init_config"},
@@ -54,8 +54,14 @@ def parse_intent(user_input: str, pool: Optional[OllamaPool] = None, model: str 
     
     # 1. Try quick regex matchers first for instant response
     for pattern, intent in _QUICK_MATCHERS.items():
-        if re.match(pattern, clean_input):
-            return intent
+        match = re.match(pattern, clean_input)
+        if match:
+            parsed_intent = intent.copy()
+            if match.groups() and match.group(1):
+                parsed_intent["workspace"] = match.group(1).strip()
+            elif parsed_intent.get("action") == "audit":
+                parsed_intent["workspace"] = "current"
+            return parsed_intent
             
     # 2. Fall back to LLM parsing
     if not pool:
@@ -86,7 +92,12 @@ def parse_intent(user_input: str, pool: Optional[OllamaPool] = None, model: str 
     except Exception as e:
         # Fallback if LLM parsing fails
         if "audit" in clean_input:
-            return {"action": "audit", "workspace": "current"}
+            # Try to extract a target if specified after 'audit'
+            parts = clean_input.split("audit", 1)
+            target = parts[1].strip() if len(parts) > 1 else ""
+            if target.startswith("on "):
+                target = target[3:].strip()
+            return {"action": "audit", "workspace": target if target else "current"}
         elif "dashboard" in clean_input:
             if "high" in clean_input or "risk" in clean_input:
                 return {"action": "dashboard", "section": "high_risk"}
