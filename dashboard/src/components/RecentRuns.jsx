@@ -1,91 +1,57 @@
-import { Clock, GitBranch, FileText, CheckCircle, XCircle, MinusCircle, Wrench } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Clock } from 'lucide-react'
 
-export default function RecentRuns({ runs }) {
+export default function RecentRuns({ runs = [] }) {
   if (!runs || runs.length === 0) {
     return (
-      <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
-        <h3 className="text-sm font-semibold text-white mb-4">Recent Runs</h3>
-        <p className="text-muted text-xs">No runs recorded yet.</p>
-      </div>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card rounded-xl p-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted mb-3">Recent Runs</h3>
+        <p className="text-muted text-sm">No recent runs.</p>
+      </motion.div>
     )
   }
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return ''
-    const date = new Date(timestamp)
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  }
-
   return (
-    <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
-      <h3 className="text-sm font-semibold text-white mb-4">Recent Runs</h3>
-      <div className="space-y-2.5">
-        {runs.slice(0, 8).map((run, i) => (
-          <div
-            key={run.run_id || i}
-            className="bg-surface-700 rounded-lg p-3.5 hover:bg-surface-500 transition-colors"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center space-x-2.5">
-                <span className="text-xs text-muted font-mono">
-                  #{(run.run_id || '').slice(-8)}
-                </span>
-                {run.git_branch && (
-                  <span className="inline-flex items-center space-x-1 text-xs text-info bg-info-muted px-2 py-0.5 rounded-full">
-                    <GitBranch size={10} />
-                    <span>{run.git_branch}</span>
-                  </span>
-                )}
-              </div>
-              <span className="inline-flex items-center space-x-1 text-xs text-muted">
-                <Clock size={10} />
-                <span>{formatTime(run.timestamp)}</span>
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center space-x-3">
-                <span className="inline-flex items-center space-x-1 text-success">
-                  <CheckCircle size={12} />
-                  <span>{run.pass_count ?? 0}</span>
-                </span>
-                <span className="inline-flex items-center space-x-1 text-danger">
-                  <XCircle size={12} />
-                  <span>{run.fail_count ?? 0}</span>
-                </span>
-                {(run.skip_count ?? 0) > 0 && (
-                  <span className="inline-flex items-center space-x-1 text-muted">
-                    <MinusCircle size={12} />
-                    <span>{run.skip_count}</span>
-                  </span>
-                )}
-                {(run.fixes_applied ?? 0) > 0 && (
-                  <span className="inline-flex items-center space-x-1 text-warning">
-                    <Wrench size={12} />
-                    <span>{run.fixes_applied}</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center space-x-3 text-muted">
-                <span className="inline-flex items-center space-x-1">
-                  <FileText size={10} />
-                  <span>{run.files_audited ?? 0}</span>
-                </span>
-                <span>{(run.duration_seconds ?? 0).toFixed(1)}s</span>
-                <span className="bg-surface-400 px-2 py-0.5 rounded text-[10px] font-mono">
-                  {(run.model || '').replace('qwen2.5-coder:', 'qwen:')}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-accent/10 flex items-center space-x-2">
+        <Clock size={16} className="text-accent-light" />
+        <h3 className="text-sm font-semibold text-white">Recent Runs ({runs.length})</h3>
       </div>
-    </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[10px] uppercase tracking-wider text-muted">
+              <th className="px-5 py-3">Date</th>
+              <th className="px-3 py-3 text-center">Files</th>
+              <th className="px-3 py-3 text-center">Pass</th>
+              <th className="px-3 py-3 text-center">Fail</th>
+              <th className="px-3 py-3 text-center">HIGH</th>
+              <th className="px-3 py-3">Model</th>
+              <th className="px-3 py-3 text-center">Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.slice(0, 20).map((run, i) => {
+              const date = String(run.timestamp || '').slice(0, 16).replace('T', ' ')
+              const risk = run.risk_distribution || {}
+              return (
+                <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
+                  className="border-t border-accent/5 hover:bg-accent/5 transition">
+                  <td className="px-5 py-2.5 text-muted font-mono text-xs">{date}</td>
+                  <td className="px-3 py-2.5 text-center text-white">{run.files_audited || 0}</td>
+                  <td className="px-3 py-2.5 text-center text-success">{run.pass_count || 0}</td>
+                  <td className="px-3 py-2.5 text-center text-pink">{run.fail_count || 0}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    {(risk.HIGH || 0) > 0 ? <span className="risk-high font-bold">{risk.HIGH}</span> : <span className="text-muted">0</span>}
+                  </td>
+                  <td className="px-3 py-2.5 text-xs text-muted font-mono truncate max-w-[120px]">{run.model || '-'}</td>
+                  <td className="px-3 py-2.5 text-center text-xs text-muted">{run.duration_seconds ? `${run.duration_seconds.toFixed(1)}s` : '-'}</td>
+                </motion.tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </motion.div>
   )
 }

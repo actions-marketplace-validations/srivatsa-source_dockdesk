@@ -13,7 +13,7 @@ from rich.console import Console
 
 console = Console()
 
-# Map file extensions to LangChain Language enum — built lazily to avoid
+# Map file extensions to LangChain Language enum - built lazily to avoid
 # NameError when RAG deps are not installed.
 _EXT_LANGUAGE_MAP = None
 
@@ -80,7 +80,7 @@ def _get_splitter_for_file(source: str) -> "RecursiveCharacterTextSplitter":
         except Exception:
             pass  # Fall through to generic splitter
     
-    # Generic fallback for unknown languages — larger chunks to avoid splitting functions
+    # Generic fallback for unknown languages - larger chunks to avoid splitting functions
     return RecursiveCharacterTextSplitter(
         chunk_size=2000,
         chunk_overlap=200,

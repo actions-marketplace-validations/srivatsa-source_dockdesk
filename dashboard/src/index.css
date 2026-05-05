@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,73 +7,98 @@
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color-scheme: dark;
+  --purple: #8A2BE2;
+  --hot-pink: #FF1493;
+  --orchid: #DA70D6;
+  --magenta: #FF00FF;
+  --cyan: #00FFFF;
+  --gold: #FFD700;
+  --bg: #0B0B1A;
+  --surface: #13132B;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #0e0e20;
+  background-color: var(--bg);
   color: #e2e8f0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.3);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.5);
+/* ── Custom Scrollbar (purple theme) ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(138, 43, 226, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(138, 43, 226, 0.5); }
+
+/* ── Glassmorphism Card ── */
+.glass-card {
+  background: rgba(19, 19, 43, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(138, 43, 226, 0.15);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-/* Pulse animation for live status */
+.glass-card-hover {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 300ms ease;
+}
+.glass-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(138, 43, 226, 0.2), 0 4px 10px rgba(0, 0, 0, 0.3);
+  border-color: rgba(138, 43, 226, 0.3);
+}
+
+/* ── Neon Glow Effects ── */
+.glow-purple { box-shadow: 0 0 20px rgba(138, 43, 226, 0.3), 0 0 60px rgba(138, 43, 226, 0.1); }
+.glow-pink { box-shadow: 0 0 20px rgba(255, 20, 147, 0.3), 0 0 60px rgba(255, 20, 147, 0.1); }
+.glow-cyan { box-shadow: 0 0 15px rgba(0, 255, 255, 0.25), 0 0 40px rgba(0, 255, 255, 0.08); }
+
+/* ── Gradient Border ── */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(138,43,226,0.4), rgba(255,20,147,0.4), rgba(0,255,255,0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ── Pulse Animations ── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
-.pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
-}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
 
-/* Card hover lift */
-.card-hover {
-  transition: transform 150ms ease, box-shadow 150ms ease;
+@keyframes glow-breathe {
+  0%, 100% { box-shadow: 0 0 10px rgba(138, 43, 226, 0.2); }
+  50% { box-shadow: 0 0 25px rgba(138, 43, 226, 0.4), 0 0 50px rgba(255, 20, 147, 0.15); }
 }
-.card-hover:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+.glow-breathe { animation: glow-breathe 3s ease-in-out infinite; }
+
+@keyframes neon-flicker {
+  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { text-shadow: 0 0 7px rgba(138, 43, 226, 0.6), 0 0 20px rgba(138, 43, 226, 0.3); }
+  20%, 24%, 55% { text-shadow: none; }
 }
 
 /* ── Tree View Animations ── */
 @keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-    max-height: 0;
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-    max-height: 2000px;
-  }
+  from { opacity: 0; transform: translateY(-4px); max-height: 0; }
+  to { opacity: 1; transform: translateY(0); max-height: 2000px; }
 }
+.animate-slideDown { animation: slideDown 200ms ease-out; }
 
-.animate-slideDown {
-  animation: slideDown 200ms ease-out;
-}
-
-/* Tree branch connector lines */
-.tree-branch {
-  position: relative;
-}
+.tree-branch { position: relative; }
 .tree-branch::before {
   content: '';
   position: absolute;
@@ -79,77 +106,43 @@ body {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(
-    to bottom,
-    rgba(99, 102, 241, 0.2) 0%,
-    rgba(99, 102, 241, 0.05) 100%
-  );
+  background: linear-gradient(to bottom, rgba(138, 43, 226, 0.3) 0%, rgba(138, 43, 226, 0.05) 100%);
+}
+.tree-branch button:hover { background: rgba(138, 43, 226, 0.08); }
+
+/* ── Active sidebar indicator ── */
+.sidebar-active {
+  position: relative;
+  background: rgba(138, 43, 226, 0.12);
+}
+.sidebar-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #8A2BE2, #FF1493);
+  box-shadow: 0 0 8px rgba(138, 43, 226, 0.5);
 }
 
-/* Tree node hover glow */
-.tree-branch button:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
+/* ── Risk badge glow ── */
+.risk-high { color: #FF1493; text-shadow: 0 0 8px rgba(255, 20, 147, 0.4); }
+.risk-medium { color: #FFD700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.3); }
+.risk-low { color: #00FFFF; text-shadow: 0 0 8px rgba(0, 255, 255, 0.3); }
 
-/* ── Print / PDF Export Styles ── */
+/* ── Print / PDF Export ── */
 @media print {
-  body {
-    background-color: white !important;
-    color: #1a1a2e !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  /* Hide sidebar, header controls, and interactive elements */
-  aside,
-  .print\:hidden,
-  button,
-  .pulse-dot {
-    display: none !important;
-  }
-
-  /* Remove sidebar margin on main content */
-  .ml-56, .ml-16 {
-    margin-left: 0 !important;
-  }
-
-  /* Cards: white background with border */
-  [class*="bg-surface"] {
-    background-color: white !important;
-    border: 1px solid #e2e8f0 !important;
-  }
-
-  /* Make text dark for readability */
-  [class*="text-white"],
-  [class*="text-muted"],
-  [class*="text-accent"] {
-    color: #1a1a2e !important;
-  }
-
-  /* Risk colors in print */
-  [class*="text-red"] { color: #ef4444 !important; }
-  [class*="text-amber"] { color: #f59e0b !important; }
-  [class*="text-emerald"] { color: #10b981 !important; }
-
-  /* Page break control */
-  .grid {
-    break-inside: avoid;
-  }
-
-  /* Tree view: open for print */
-  .tree-branch {
-    display: block !important;
-  }
-
-  /* Header for print */
+  body { background-color: white !important; color: #1a1a2e !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  aside, .print\:hidden, button, .pulse-dot { display: none !important; }
+  .ml-56, .ml-16 { margin-left: 0 !important; }
+  [class*="bg-surface"], .glass-card { background-color: white !important; border: 1px solid #e2e8f0 !important; }
+  [class*="text-white"], [class*="text-muted"] { color: #1a1a2e !important; }
+  .grid { break-inside: avoid; }
   main::before {
     content: "DockDesk Audit Report";
-    display: block;
-    font-size: 24px;
-    font-weight: 700;
-    margin-bottom: 16px;
-    color: #1a1a2e;
-    border-bottom: 2px solid #6366f1;
-    padding-bottom: 8px;
+    display: block; font-size: 24px; font-weight: 700; margin-bottom: 16px; color: #1a1a2e;
+    border-bottom: 2px solid #8A2BE2; padding-bottom: 8px;
   }
 }

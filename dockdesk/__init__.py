@@ -5,4 +5,4 @@ Uses dual LLM models via Ollama to detect semantic drift between
 code logic and documentation claims.
 """
 
-__version__ = "2.4.1"
+__version__ = "3.0.0"

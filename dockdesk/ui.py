@@ -14,6 +14,8 @@ from rich.rule import Rule
 from rich.padding import Padding
 from rich import box
 
+from dockdesk import __version__ as _PKG_VERSION
+
 console = Console(highlight=False)
 
 # ── Palette ────────────────────────────────────────────────────────────────────
@@ -46,7 +48,9 @@ GRADIENT_COLORS = [
 ]
 
 
-def print_logo(version: str = "2.3.3", animated: bool = True):
+def print_logo(version: str = "", animated: bool = True):
+    if not version:
+        version = _PKG_VERSION
     lines = ASCII_LOGO.strip("\n").split("\n")
     total_lines = len(lines)
     for i, line in enumerate(lines):
@@ -58,14 +62,16 @@ def print_logo(version: str = "2.3.3", animated: bool = True):
             time.sleep(0.045)
 
     tagline = Text()
-    tagline.append("  ◈  ", style=f"bold {PURPLE}")
+    tagline.append("    ", style=f"bold {PURPLE}")
     tagline.append("Semantic Code & Documentation Auditor", style=f"bold {ORCHID}")
-    tagline.append("  ◈  ", style=f"bold {PURPLE}")
+    tagline.append("    ", style=f"bold {PURPLE}")
     console.print(Align.center(tagline))
     console.print(Align.center(Text(f"v{version}  ·  Neural Edition", style=f"dim {MAGENTA}")))
     console.print()
 
-def print_init_spinners(skip: bool = False, version: str = "2.3.3", init_steps=None):
+def print_init_spinners(skip: bool = False, version: str = "", init_steps=None):
+    if not version:
+        version = _PKG_VERSION
     if not skip:
         print_logo(version, animated=True)
     else:
@@ -89,7 +95,7 @@ def print_init_spinners(skip: bool = False, version: str = "2.3.3", init_steps=N
             time.sleep(duration)
 
         tick = Text()
-        tick.append("  ✔  ", style=f"bold {HOT_PINK}")
+        tick.append("    ", style=f"bold {HOT_PINK}")
         tick.append(label, style=f"{ORCHID}")
         console.print(tick)
         time.sleep(0.08)
@@ -116,7 +122,7 @@ def print_config_panel(workspace, models, loc, exec_mode, out_format, risk_thres
     ]
 
     for key, val in rows:
-        table.add_row(f"◆ {key}", val)
+        table.add_row(f" {key}", val)
 
     panel = Panel(
         Padding(table, (1, 2)),
@@ -149,7 +155,7 @@ def get_progress_bar():
 
 def print_section_rule(text: str):
     console.print(
-        Rule(Text(f"  ◈  {text}  ◈  ", style=f"bold {HOT_PINK}"), style=PURPLE)
+        Rule(Text(f"    {text}    ", style=f"bold {HOT_PINK}"), style=PURPLE)
     )
     console.print()
 
@@ -170,7 +176,9 @@ def get_results_table():
     table.add_column("SUMMARY", style=f"dim {NEON_PINK}", ratio=5)
     return table
 
-def print_summary_card(total, pass_count, fail_count, high, med, low, report_path, version="2.3.3"):
+def print_summary_card(total, pass_count, fail_count, high, med, low, report_path, version=""):
+    if not version:
+        version = _PKG_VERSION
     grid = Table.grid(padding=(0, 4))
     grid.add_column(justify="center")
     grid.add_column(justify="center")
@@ -195,7 +203,7 @@ def print_summary_card(total, pass_count, fail_count, high, med, low, report_pat
 
     verdict = Text(justify="center")
     if high > 0:
-        verdict.append("\n  ✘  PUSH BLOCKED  ", style=f"bold {HOT_PINK} on {DIM_PURPLE}")
+        verdict.append("\n    PUSH BLOCKED  ", style=f"bold {HOT_PINK} on {DIM_PURPLE}")
         verdict.append("\n\n", style="")
         verdict.append(f"{high} HIGH-risk file(s) must be resolved.\n", style=f"bold {ORCHID}")
     elif med > 0:
@@ -203,7 +211,7 @@ def print_summary_card(total, pass_count, fail_count, high, med, low, report_pat
         verdict.append("\n\n", style="")
         verdict.append(f"{med} MEDIUM-risk file(s) found.\n", style=f"bold {ORCHID}")
     else:
-        verdict.append("\n  ✔  PUSH SAFE  ", style=f"bold {CYAN_ACCENT} on {DIM_PURPLE}")
+        verdict.append("\n    PUSH SAFE  ", style=f"bold {CYAN_ACCENT} on {DIM_PURPLE}")
         verdict.append("\n\n", style="")
         verdict.append(f"All files passed.\n", style=f"bold {ORCHID}")
         
@@ -232,7 +240,7 @@ def print_summary_card(total, pass_count, fail_count, high, med, low, report_pat
         Rule(Text("  end of session  ", style=f"dim {PURPLE}"), style=DIM_PURPLE)
     )
     console.print(
-        Align.center(Text("◈  DockDesk  ◈  all rights reserved  ◈",
+        Align.center(Text("  DockDesk    all rights reserved  ",
                           style=f"dim {DIM_PURPLE}"))
     )
     console.print()

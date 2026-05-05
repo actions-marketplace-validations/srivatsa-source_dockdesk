@@ -1,5 +1,5 @@
 """
-DockDesk Discovery — Industrial-grade file discovery for monorepos.
+DockDesk Discovery - Industrial-grade file discovery for monorepos.
 
 Key improvements:
 - Single os.walk() pass instead of 8+ rglob() calls  (O(n) vs O(8n))
@@ -43,7 +43,7 @@ DOC_EXTENSIONS: Set[str] = {'.md', '.rst', '.txt'}
 
 SPECIAL_CODE_FILES: Set[str] = {'Dockerfile', 'Makefile', 'Jenkinsfile', 'Vagrantfile'}
 
-# Always skip — hardcoded safety net on top of .gitignore
+# Always skip - hardcoded safety net on top of .gitignore
 ALWAYS_SKIP_DIRS: Set[str] = {
     '.git', '.hg', '.svn',
     'node_modules', '__pycache__', '.tox',

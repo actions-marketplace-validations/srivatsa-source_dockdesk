@@ -257,7 +257,7 @@ def _chat_interface() -> None:
         if not choice:
             continue
 
-        intent = parse_intent(choice, pool=pool)
+        intent = parse_intent(choice, pool=pool, workspace_path=workspace)
         action = intent.get("action", "unknown")
 
         if action == "exit":
@@ -265,16 +265,71 @@ def _chat_interface() -> None:
             return
         elif action == "audit":
             target = intent.get("workspace", "current")
-            selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target)
-            if selected is None:
-                continue
+            args_obj = intent.get("args", {})
+            include_from_args = args_obj.get("include")
+            
+            # If the user specified explicit options via NLP, we skip the target/options prompts
+            if include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]):
+                target_ws = workspace
+                include_pattern = include_from_args
+                
+                # Fetch base config
+                from dockdesk.config import build_config
+                try:
+                    base_config = build_config(target_ws)
+                    default_model = base_config.model
+                    default_reasoning = base_config.reasoning_model
+                except Exception:
+                    default_model = "qwen2.5-coder:7b"
+                    default_reasoning = "deepseek-r1:1.5b"
 
-            target_ws, include_pattern = selected
-            opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
-            if opts is not None:
-                # Marker used to avoid replaying startup animation inside chat-triggered audit.
-                opts._from_chat = True
+                is_auto_tune = args_obj.get("auto_tune", False)
+                opts = argparse.Namespace(
+                    workspace=target_ws,
+                    model=None if is_auto_tune else args_obj.get("model", default_model),
+                    detect_model=None,
+                    fix_model=None,
+                    reasoning_model=args_obj.get("reasoning_model", default_reasoning),
+                    discord_webhook=None,
+                    auto_tune=is_auto_tune,
+                    fix=args_obj.get("fix", False),
+                    fix_code=False,
+                    ci=False,
+                    verbose=False,
+                    format=args_obj.get("format", "md"),
+                    output=None,
+                    fail_on_risk="HIGH",
+                    skip_rag=args_obj.get("skip_rag", False),
+                    max_files=None,
+                    max_file_size=None,
+                    include=include_pattern,
+                    exclude=None,
+                    workers=None,
+                    ollama_urls=None,
+                    fast=args_obj.get("fast_mode", False),
+                    batch_size=None,
+                    clear_cache=None,
+                    no_gitignore=False,
+                    turbo=args_obj.get("turbo", False),
+                    keep_clone=False,
+                    rules=None,
+                    force_full_scan=None,
+                    rotate_models=False,
+                    _from_chat=True
+                )
+                
+                console.print("[green][+] NLP parsed options automatically. Starting audit...[/green]")
                 run_audit(opts)
+            else:
+                selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target)
+                if selected is None:
+                    continue
+
+                target_ws, include_pattern = selected
+                opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
+                if opts is not None:
+                    opts._from_chat = True
+                    run_audit(opts)
         elif action == "dashboard":
             section = intent.get("section", "summary")
             dashboard_cmd(argparse.Namespace(workspace=workspace, export=None, section=section, open=False))
@@ -300,6 +355,15 @@ def _chat_interface() -> None:
         elif action == "open_tui":
             from dockdesk.tui import launch_tui
             launch_tui(workspace)
+        elif action == "hooks":
+            sub = intent.get("sub_action", "status")
+            from dockdesk.hooks import install_hooks, uninstall_hooks, hooks_status
+            if sub == "install":
+                install_hooks(workspace)
+            elif sub == "uninstall":
+                uninstall_hooks(workspace)
+            else:
+                hooks_status(workspace)
         else:
             msg = intent.get("message", "I didn't quite get that. Try 'run audit', 'show dashboard', or 'list models'.")
             console.print(f"[yellow]{msg}[/yellow]")
@@ -329,55 +393,14 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
         rel_cand = (current / raw_path).resolve()
         if rel_cand.exists():
             return [rel_cand]
-            
-        # Agentic OS Discovery phase
-        import os
-        from pathlib import Path as PathLib
-        
-        console.print(f"[dim]Agentic Search: Target '{raw}' not found locally. Scanning common directories...[/dim]")
-        
-        search_dirs = []
-        user_home = PathLib.home()
-        for fd in ["Documents", "Desktop", "Downloads"]:
-            p = user_home / fd
-            if p.exists():
-                search_dirs.append(p)
                 
-        # Add root fallback for Windows safely if needed
-        if os.name == "nt":
-            search_dirs.append(PathLib("C:\\"))
-        else:
-            search_dirs.append(PathLib("/"))
-
-        skip_dirs = {"node_modules", ".git", "AppData", "Windows", "Program Files"}
-        
-        matches = []
-        for search_root in search_dirs:
-            try:
-                for root, dirs, files in os.walk(search_root):
-                    dirs[:] = [d for d in dirs if d not in skip_dirs]
-                    
-                    if raw in dirs:
-                        found_path = (PathLib(root) / raw).resolve()
-                        if found_path not in matches:
-                            matches.append(found_path)
-                            if len(matches) >= 5:
-                                return matches
-            except (PermissionError, OSError):
-                pass
-            
-            # If we found matches in one of the specific directories, stop scanning others
-            # to avoid deep scans of C:\ when matches already exist.
-            if matches:
-                break
-                
-        return matches
+        return []
 
     def _select_from_matches(matches: list[Path], raw: str) -> Path | None:
         if not matches:
             return None
         if len(matches) == 1:
-            console.print(f"[green][+] Agentic Match Found:[/green] {matches[0]}")
+            console.print(f"[green][+] Match Found:[/green] {matches[0]}")
             return matches[0]
 
         console.print(f"\n[yellow][*] Multiple matches found for '{raw}':[/yellow]")
@@ -433,8 +456,11 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
         target = _select_from_matches(matches, raw)
         
         if not target:
-            console.print("[yellow][!] Target not found or selection cancelled. Try again.[/yellow]")
-            continue
+            console.print("[yellow][!] Target not found or selection cancelled. Falling back to folder browser.[/yellow]")
+            picked = _browse_for_workspace(current)
+            if not picked:
+                continue
+            return str(picked.resolve()), None
 
         if not target.exists():
             console.print(f"[bold red][-] Path not found: {target}[/bold red]")
@@ -455,30 +481,64 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
 
 def _interactive_audit_options(workspace: str, include_pattern: str | None = None) -> argparse.Namespace | None:
     """Collect quick audit options from interactive mode."""
+    from dockdesk.config import build_config
+    try:
+        base_config = build_config(workspace)
+        default_model = base_config.model
+        default_reasoning_model = base_config.reasoning_model
+        default_out_format = base_config.output_format.value
+        default_auto_tune = getattr(base_config, 'auto_tune', False)
+        default_skip_rag = getattr(base_config, 'skip_rag', False)
+        default_fast_mode = getattr(base_config, 'fast_mode', False)
+        default_rotate_models = getattr(base_config, 'rotate_models', False)
+        default_turbo = getattr(base_config, 'turbo', False)
+    except Exception:
+        default_model = "qwen2.5-coder:7b"
+        default_reasoning_model = "deepseek-r1:1.5b"
+        default_out_format = "md"
+        default_auto_tune = False
+        default_skip_rag = False
+        default_fast_mode = False
+        default_rotate_models = False
+        default_turbo = False
+
     console.print(Panel(
         "[bold #FF1493]Quick Audit Options[/bold #FF1493]\n"
         "[dim]Press Enter to accept defaults. Type 'q' to cancel and return.[/dim]",
         border_style="#8A2BE2"
     ))
 
-    model = Prompt.ask("[#DA70D6]Code model[/#DA70D6]", default="qwen2.5-coder:7b").strip()
+    model = Prompt.ask("[#DA70D6]Code model[/#DA70D6]", default=default_model).strip()
     if model.lower() == "q":
         return None
 
-    auto_tune = _prompt_bool("[#DA70D6]Auto-tune model by LOC?[/#DA70D6]", default=False)
-    reasoning_model = Prompt.ask("[#DA70D6]Reasoning model[/#DA70D6]", default="deepseek-r1:1.5b").strip()
-    out_format = Prompt.ask("[#DA70D6]Output format (md/json/sarif)[/#DA70D6]", default="md").strip().lower()
+    auto_tune = _prompt_bool("[#DA70D6]Auto-tune model by LOC?[/#DA70D6]", default=default_auto_tune)
+    reasoning_model = Prompt.ask("[#DA70D6]Reasoning model[/#DA70D6]", default=default_reasoning_model).strip()
+    out_format = Prompt.ask("[#DA70D6]Output format (md/json/sarif)[/#DA70D6]", default=default_out_format).strip().lower()
     if out_format not in {"md", "json", "sarif"}:
         console.print("[yellow][!] Invalid format, using md.[/yellow]")
         out_format = "md"
 
-    skip_rag = _prompt_bool("[#DA70D6]Skip RAG for speed?[/#DA70D6]", default=False)
-    fast_mode = _prompt_bool("[#DA70D6]Enable fast mode?[/#DA70D6]", default=False)
-    rotate_models = _prompt_bool("[#DA70D6]Rotate code models per file?[/#DA70D6]", default=False)
-    turbo = _prompt_bool("[#DA70D6]Enable turbo mode?[/#DA70D6]", default=False)
+    skip_rag = _prompt_bool("[#DA70D6]Skip RAG for speed?[/#DA70D6]", default=default_skip_rag)
+    fast_mode = _prompt_bool("[#DA70D6]Enable fast mode?[/#DA70D6]", default=default_fast_mode)
+    rotate_models = _prompt_bool("[#DA70D6]Rotate code models per file?[/#DA70D6]", default=default_rotate_models)
+    turbo = _prompt_bool("[#DA70D6]Enable turbo mode?[/#DA70D6]", default=default_turbo)
     apply_fixes = _prompt_bool("[#DA70D6]Apply documentation fixes?[/#DA70D6]", default=False)
     fix_code = _prompt_bool("[#DA70D6]Also allow code fixes?[/#DA70D6]", default=False) if apply_fixes else False
     verbose = _prompt_bool("[#DA70D6]Verbose output?[/#DA70D6]", default=False)
+
+    save_config = Prompt.ask("[#DA70D6]Save these settings to dockdesk.yml? (y/n)[/#DA70D6]", default="y").strip().lower()
+    if save_config == 'y':
+        config_path = os.path.join(workspace, "dockdesk.yml")
+        try:
+            import yaml
+            # Simple fallback format if no yaml module
+            yaml_content = f"model: {model}\nreasoning_model: {reasoning_model}\noutput_format: {out_format}\nauto_tune: {str(auto_tune).lower()}\nskip_rag: {str(skip_rag).lower()}\nfast_mode: {str(fast_mode).lower()}\nrotate_models: {str(rotate_models).lower()}\nturbo: {str(turbo).lower()}\n"
+            with open(config_path, 'w') as f:
+                f.write(yaml_content)
+            console.print(f"[green][+] Saved config to {config_path}[/green]")
+        except Exception as e:
+            console.print(f"[red][!] Failed to save configuration: {e}[/red]")
 
     return argparse.Namespace(
         workspace=workspace,
@@ -624,7 +684,7 @@ def run_audit(args):
     # Model selection
     model = config.model
     model_tier = "unknown"
-    # Defer LOC counting — will be done lazily or after discovery
+    # Defer LOC counting - will be done lazily or after discovery
     total_loc = 0
 
     # Resolve reasoning model
@@ -649,7 +709,7 @@ def run_audit(args):
         console.print(f"[white][>] Auto-tuned model: {model} ({reason})[/white]")
         model_info = get_model_info(model)
         model_tier = model_info.tier.value if model_info else "unknown"
-        # LOC is counted inside auto_select_model — retrieve it once
+        # LOC is counted inside auto_select_model - retrieve it once
         total_loc = count_lines_of_code(workspace)
     else:
         is_valid, message = validate_model(model, strict=False)
@@ -813,6 +873,7 @@ def run_audit(args):
 
 def generate_sarif(audit_results: list, workspace: str) -> dict:
     """Generate SARIF format output for IDE integration."""
+    from dockdesk import __version__
     results = []
 
     for r in audit_results:
@@ -852,7 +913,7 @@ def generate_sarif(audit_results: list, workspace: str) -> dict:
             "tool": {
                 "driver": {
                     "name": "DockDesk",
-                    "version": "2.1.0",
+                    "version": __version__,
                     "informationUri": "https://github.com/dockdesk/auditor",
                     "rules": [{
                         "id": "dockdesk/semantic-drift",
@@ -875,21 +936,9 @@ def list_models_cmd(args):
 
 
 def init_config_cmd(args):
-    """Initialize a sample configuration file."""
-    from dockdesk.config import create_sample_config
-
-    config_content = create_sample_config(args.workspace, format="yaml")
-    config_path = os.path.join(args.workspace, "dockdesk.yml")
-
-    if os.path.exists(config_path) and not args.force:
-        console.print(f"[white][!] Config already exists: {config_path}[/white]")
-        console.print("Use --force to overwrite")
-        return
-
-    with open(config_path, 'w') as f:
-        f.write(config_content)
-
-    console.print(f"[white][+] Created config: {config_path}[/white]")
+    """Initialize a configuration file interactively."""
+    _interactive_audit_options(args.workspace)
+    console.print(f"[white][+] Finished configuration init.[/white]")
     console.print("[dim]Tip: Run 'dockdesk setup' to install Ollama and pull recommended models.[/dim]")
 
 
@@ -941,9 +990,9 @@ def open_react_dashboard_cmd(args):
         console.print("[white]📊 Exporting audit data...[/white]")
         # Export logic internally
         dashboard_cmd(argparse.Namespace(workspace=workspace, export=data_file, open=False))
-        console.print("[green]   ✓ Data exported[/green]")
+        console.print("[green]    Data exported[/green]")
     else:
-        console.print("[yellow]⚠️  No audit history yet — dashboard will show sample data[/yellow]")
+        console.print("[yellow]  No audit history yet - dashboard will show sample data[/yellow]")
 
     # Check if node is available
     npx = shutil.which("npx")
@@ -958,12 +1007,12 @@ def open_react_dashboard_cmd(args):
         subprocess.run(["npm", "install"], cwd=dashboard_dir, capture_output=True, shell=True)
 
     # Start Vite dev server
-    console.print("[green]🚀 Starting dashboard at http://localhost:3000[/green]")
+    console.print("[green] Starting dashboard at http://localhost:3000[/green]")
     console.print("[dim]   Press Ctrl+C to stop[/dim]\n")
     try:
         subprocess.run(["npx", "vite", "--port", "3000", "--open"], cwd=dashboard_dir, shell=True)
     except KeyboardInterrupt:
-        console.print("\n\n[green]✓ Dashboard stopped[/green]")
+        console.print("\n\n[green] Dashboard stopped[/green]")
 
 
 def dashboard_cmd(args):
@@ -982,11 +1031,21 @@ def dashboard_cmd(args):
     reader = ChangelogReader(changelog_path)
 
     if args.export:
+        export_path = os.path.abspath(args.export)
+        
+        # Prefer the rich dashboard data generated by the primary audit process
+        enriched_data_path = os.path.join(args.workspace, "dashboard_data.json")
+        if os.path.exists(enriched_data_path):
+            console.print(f"[white]📊 Copying enriched dashboard data to {export_path}...[/white]")
+            shutil.copy2(enriched_data_path, export_path)
+            console.print(f"[green] Exported rich dashboard data: {export_path}[/green]")
+            return
+
+        # Fallback to basic export if the enriched version doesn't exist
         data = reader.export_for_dashboard()
-        export_path = args.export
         with open(export_path, 'w') as f:
             json.dump(data, f, indent=2, default=str)
-        console.print(f"[green]✓ Exported dashboard data: {export_path}[/green]")
+        console.print(f"[green] Exported basic dashboard data: {export_path}[/green]")
     else:
         section = getattr(args, 'section', 'summary')
         if section == "high_risk":
@@ -1215,6 +1274,16 @@ Examples:
                             choices=["bash", "zsh", "fish", "auto"],
                             help="Shell type (default: auto-detect)")
 
+    # hooks subcommand
+    hooks_parser = subparsers.add_parser("hooks", help="Manage git pre-push audit hooks")
+    hooks_sub = hooks_parser.add_subparsers(dest="hooks_action")
+    hooks_install = hooks_sub.add_parser("install", help="Install pre-push audit hook")
+    hooks_install.add_argument("--workspace", default=".", help="Workspace path")
+    hooks_uninstall = hooks_sub.add_parser("uninstall", help="Remove pre-push audit hook")
+    hooks_uninstall.add_argument("--workspace", default=".", help="Workspace path")
+    hooks_status_p = hooks_sub.add_parser("status", help="Check hook installation status")
+    hooks_status_p.add_argument("--workspace", default=".", help="Workspace path")
+
     # Backward compat: audit args on root parser
     add_audit_args(parser)
 
@@ -1244,6 +1313,8 @@ Examples:
         launch_tui(os.path.abspath(args.workspace))
     elif args.command == "completion":
         _handle_completion_cmd(args)
+    elif args.command == "hooks":
+        _handle_hooks_cmd(args)
     else:
         run_audit(args)
 
@@ -1260,12 +1331,12 @@ def _handle_profile_cmd(args) -> None:
         print_profile_list()
     elif action == "create":
         path = create_profile(args.name)
-        console.print(f"[green]✓ Profile created: {path}[/green]")
+        console.print(f"[green] Profile created: {path}[/green]")
     elif action == "show":
         print_profile_detail(args.name)
     elif action == "init":
         path = init_global_config()
-        console.print(f"[green]✓ Global config: {path}[/green]")
+        console.print(f"[green] Global config: {path}[/green]")
     else:
         print_profile_list()
 
@@ -1305,6 +1376,23 @@ def _handle_completion_cmd(args) -> None:
         )
     else:
         console.print(f"[yellow]Unsupported shell: {shell}[/yellow]")
+
+
+def _handle_hooks_cmd(args) -> None:
+    """Handle `dockdesk hooks` subcommands."""
+    from dockdesk.hooks import install_hooks, uninstall_hooks, hooks_status
+
+    action = getattr(args, 'hooks_action', None)
+    workspace = os.path.abspath(getattr(args, 'workspace', '.'))
+
+    if action == "install":
+        install_hooks(workspace)
+    elif action == "uninstall":
+        uninstall_hooks(workspace)
+    elif action == "status":
+        hooks_status(workspace)
+    else:
+        hooks_status(workspace)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# DockDesk v2.3.3
+# DockDesk v3.0.0
 
 **Local-First Semantic Documentation Auditor**
 
@@ -15,7 +15,7 @@ Ensure your code and documentation never drift apart without sending a single by
 ## Table of Contents
 
 - [Overview](#overview)
-- [What's New in v2.3.3](#whats-new-in-v233)
+- [What's New in v3.0.0](#whats-new-in-v300)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Model Selection](#model-selection)
@@ -49,7 +49,7 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ---
 
-## What's New in v2.3.3
+## What's New in v3.0.0
 
 | Feature | Description |
 |---------|-------------|

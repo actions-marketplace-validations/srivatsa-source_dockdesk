@@ -1,5 +1,5 @@
 """
-DockDesk Plugin System — Custom validation hooks.
+DockDesk Plugin System - Custom validation hooks.
 
 Loads Python plugins from .dockdesk/plugins/ in the workspace.
 Each plugin can define:
@@ -65,7 +65,7 @@ class PluginManager:
 
         # Security disclaimer
         console.print(
-            f"[yellow]⚠ Loading {len(py_files)} plugin(s) from "
+            f"[yellow] Loading {len(py_files)} plugin(s) from "
             f"{self.plugins_dir}[/yellow]"
         )
         console.print(
@@ -86,7 +86,7 @@ class PluginManager:
                     plugin = Plugin(name, mod)
                     self._plugins.append(plugin)
                     console.print(
-                        f"[dim]  ✔ Loaded plugin: {name} ({plugin})[/dim]"
+                        f"[dim]   Loaded plugin: {name} ({plugin})[/dim]"
                     )
             except Exception as e:
                 console.print(
@@ -117,7 +117,7 @@ class PluginManager:
                         result = modified
                 except Exception as e:
                     console.print(
-                        f"[yellow]  ⚠ Plugin '{plugin.name}' pre_audit "
+                        f"[yellow]   Plugin '{plugin.name}' pre_audit "
                         f"failed: {e}[/yellow]"
                     )
         return result
@@ -133,7 +133,7 @@ class PluginManager:
                         current = modified
                 except Exception as e:
                     console.print(
-                        f"[yellow]  ⚠ Plugin '{plugin.name}' post_audit "
+                        f"[yellow]   Plugin '{plugin.name}' post_audit "
                         f"failed: {e}[/yellow]"
                     )
         return current

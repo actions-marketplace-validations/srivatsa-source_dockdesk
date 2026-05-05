@@ -21,7 +21,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 console = Console(highlight=False)
 
-# Legacy cache dir — migrated to SQLite on first run
+# Legacy cache dir - migrated to SQLite on first run
 LEGACY_CACHE_DIR = ".dockdesk_cache"
 
 # Default models
@@ -29,15 +29,15 @@ DEFAULT_MODEL = "qwen2.5-coder:7b"                 # Code analysis (the "hands")
 DEFAULT_REASONING_MODEL = "deepseek-r1:1.5b"  # Logical reasoning (the "brain")
 DEFAULT_TEMPERATURE = 0.1
 
-# ── Module-level singletons (initialized per-run in discover_node) ──
-_cache: Optional[ResultCache] = None
-_pool: Optional[OllamaPool] = None
-_plugin_mgr = None
-
+# ── Module-level singletons (migrated to state in v3) ──
+# _cache, _pool, _plugin_mgr, _current_workspace removed to prevent cross-run contamination
 
 def _init_infrastructure(workspace: str, config=None):
-    """Initialize cache + OllamaPool once per run."""
-    global _cache, _pool
+    """Initialize cache + OllamaPool. Re-initializes if workspace changes."""
+    # Instantiation logic moved to pipeline orchestrator
+    pass
+
+    _current_workspace = workspace
 
     # SQLite cache
     _cache = ResultCache(workspace)
@@ -99,7 +99,7 @@ def discover_node(state: AuditState) -> AuditState:
         max_files=max_files,
         respect_gitignore=respect_gi,
     )
-    # Single discovery walk — find_all() is 2x faster than separate find_code_files() + find_docs()
+    # Single discovery walk - find_all() is 2x faster than separate find_code_files() + find_docs()
     code_files, docs = discovery.find_all()
 
     # Show discovery stats
@@ -244,7 +244,7 @@ def integrity_node(state: AuditState) -> AuditState:
 
         console.print(f"[dim]  └─ Merkle scope: {len(changed_files)} file(s)[/dim]")
 
-    # Load content for scoped files (lazy — only read what we need)
+    # Load content for scoped files (lazy - only read what we need)
     config = state.get("config")
     max_files = config.max_files if config and hasattr(config, 'max_files') and config.max_files > 0 else 0
     max_file_size = config.max_file_size if config and hasattr(config, 'max_file_size') else 512000
@@ -335,7 +335,7 @@ def parse_llm_json(content: str) -> dict:
     except Exception:
         pass
 
-    # 4) Regex fallback — extract individual fields
+    # 4) Regex fallback - extract individual fields
     status_match = re.search(r'"status"\s*:\s*"([^"]+)"', content)
     risk_match = re.search(r'"risk"\s*:\s*"([^"]+)"', content)
     summary_match = re.search(r'"summary"\s*:\s*"([^"]*)"', content)
@@ -362,7 +362,7 @@ def parse_llm_json(content: str) -> dict:
             "reasoning": reasoning_match.group(1) if reasoning_match else "",
         }
 
-    # 5) Last resort — return a structured error rather than crashing the pipeline
+    # 5) Last resort - return a structured error rather than crashing the pipeline
     # Use LOW risk + safe_to_push=True so parse failures don't inflate risk or block pushes
     console.print(f"[white][!] LLM returned unparseable output ({len(content)} chars), using fallback[/white]")
     return {
@@ -398,7 +398,7 @@ def _select_docs_for_file(file_path: str, doc_sources: List[dict], top_k: int = 
     scores.sort(key=lambda x: x[0], reverse=True)
     return [d for _, d in scores[:top_k]]
 
-# Node: Code Analysis — Qwen Coder (the "hands")
+# Node: Code Analysis - Qwen Coder (the "hands")
 # Reads code, compares against docs, detects drift, produces raw findings + draft fixes.
 def code_analysis_node(state: AuditState) -> AuditState:
     if not state["changed_files"]:
@@ -414,7 +414,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
     temperature = config.temperature if config and hasattr(config, 'temperature') else DEFAULT_TEMPERATURE
     timeout = config.timeout_per_file if config and hasattr(config, 'timeout_per_file') else 120
 
-    # Resolve code model — prefer detect_model (legacy) or model
+    # Resolve code model - prefer detect_model (legacy) or model
     code_model = model_name
     if config:
         if config.detect_model:
@@ -485,7 +485,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
         docs_subset = _precomputed_docs.get(file_path, [])
         docs_text = "\n".join([f"[{d['path']}]: {d['content'][:500]}" for d in docs_subset])
 
-        # Truncate code to fit context window — keep first 2000 chars
+        # Truncate code to fit context window - keep first 2000 chars
         code_trimmed = code_content[:2000]
 
         prompt = ChatPromptTemplate.from_messages([
@@ -691,14 +691,10 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
     mode_tag = "batched" if use_batching else "individual"
     console.print(f"[dim]  └─ Code analysis ({mode_tag}): [green]{passes} PASS[/green], [red]{fails} FAIL/ERR[/red], {cached_count} cached[/dim]")
 
-    from dockdesk.orchestrator import execute_analysis
-    state.setdefault("orchestration_metrics", {})
-    state["code_findings"] = code_findings
-    state = execute_analysis(state)
     return {"code_findings": code_findings}
 
 
-# Node: Reasoning — DeepSeek-R1-Distill (the "brain")
+# Node: Reasoning - DeepSeek-R1-Distill (the "brain")
 # Judges risk, validates draft fixes, decides if changes are safe to push.
 def reasoning_node(state: AuditState) -> AuditState:
     code_findings = state.get("code_findings", [])
@@ -724,7 +720,7 @@ def reasoning_node(state: AuditState) -> AuditState:
 
     console.print(f"[dim]  └─ Reasoning model: {reasoning_model}[/dim]")
 
-    # Skip PASS and SKIP files — no need to reason about them
+    # Skip PASS and SKIP files - no need to reason about them
     needs_reasoning = [f for f in code_findings if f.get("status") not in ("PASS", "SKIP")]
     pass_throughs = [f for f in code_findings if f.get("status") == "PASS"]
     skip_throughs = [f for f in code_findings if f.get("status") == "SKIP"]
@@ -784,7 +780,7 @@ def reasoning_node(state: AuditState) -> AuditState:
         start_time = time.time()
         file_path = str(finding.get("file", "unknown"))
 
-        # Safely extract all fields — handle dict/list/None/any type
+        # Safely extract all fields - handle dict/list/None/any type
         status = _safe_str(finding.get("status", "UNKNOWN"), 50)
         summary = _safe_str(finding.get("summary", ""), 200)
         draft_fix = _safe_str(finding.get("draft_fix", ""), 200)
@@ -815,7 +811,7 @@ Rules:
         llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048)
         chain = prompt | llm
 
-        # Retry loop — DeepSeek-R1 sometimes returns empty due to internal <think> consuming all tokens
+        # Retry loop - DeepSeek-R1 sometimes returns empty due to internal <think> consuming all tokens
         # Progressive num_predict escalation: 1536 → 2048 on retry
         result = None
         last_content = ""
@@ -889,13 +885,13 @@ Rules:
             "summary": f.get("summary", "Code matches documentation"),
             "fix": "",
             "safe_to_push": True,
-            "reasoning": "Code analysis passed — no drift detected.",
+            "reasoning": "Code analysis passed - no drift detected.",
             "code_model": f.get("code_model", ""),
             "reasoning_model": reasoning_model,
             "duration_ms": f.get("duration_ms", 0),
         })
 
-    # Pass-through results for SKIP files (no docs found — no LLM call needed)
+    # Pass-through results for SKIP files (no docs found - no LLM call needed)
     for f in skip_throughs:
         audit_results.append({
             "file": f.get("file", "unknown"),
@@ -904,7 +900,7 @@ Rules:
             "summary": f.get("summary", "No documentation found for this file"),
             "fix": "",
             "safe_to_push": True,
-            "reasoning": "No docs found — nothing to compare.",
+            "reasoning": "No docs found - nothing to compare.",
             "code_model": f.get("code_model", ""),
             "reasoning_model": reasoning_model,
             "duration_ms": f.get("duration_ms", 0),
@@ -973,7 +969,41 @@ Rules:
     return {"audit_results": audit_results}
 
 
-# Node: Discord Notification
+# Node: Accountability - Per-developer drift tracking + Merkle audit trail
+def accountability_node(state: AuditState) -> AuditState:
+    audit_results = state.get("audit_results", [])
+    if not audit_results:
+        return {"accountability_data": None, "audit_chain_link": None}
+
+    console.print("[bold cyan]Step 5.5:[/bold cyan] [white]Accountability Tracking[/white]")
+
+    workspace = state["workspace_path"]
+
+    # Build per-developer accountability
+    from dockdesk.accountability import build_accountability, build_audit_chain_link
+    from dockdesk.orchestrator import generate_run_id
+
+    accountability = build_accountability(audit_results, workspace)
+
+    dev_count = len(accountability.get("developers", {}))
+    offenders = len(accountability.get("top_offenders", []))
+    clean = len(accountability.get("clean_streaks", []))
+    codeowners_tag = " (CODEOWNERS loaded)" if accountability.get("codeowners_loaded") else ""
+
+    console.print(f"[dim]  └─ {dev_count} developers tracked, {offenders} with drift, {clean} clean{codeowners_tag}[/dim]")
+
+    # Build tamper-evident audit chain link
+    run_id = state.get("orchestration_metrics", {}).get("run_id", generate_run_id())
+    chain_link = build_audit_chain_link(run_id, workspace, audit_results)
+
+    console.print(f"[dim]  └─ Audit chain: link #{chain_link.chain_hash[:12]}... (prev: {chain_link.previous_hash[:12]}...)[/dim]")
+
+    return {
+        "accountability_data": accountability,
+        "audit_chain_link": chain_link.to_dict(),
+    }
+
+
 def notify_node(state: AuditState) -> AuditState:
     config = state.get("config")
     webhook_url = ""
@@ -1067,7 +1097,7 @@ def reporting_node(state: AuditState) -> AuditState:
         risk_str = f"[{risk_style_map.get(risk, 'dim')}]{risk_label}[/{risk_style_map.get(risk, 'dim')}]"
 
         safe = res.get("safe_to_push")
-        safe_str = "[bold #00FFFF]✔ YES[/bold #00FFFF]" if safe else "[bold #FF1493]✘ NO[/bold #FF1493]"
+        safe_str = "[bold #00FFFF] YES[/bold #00FFFF]" if safe else "[bold #FF1493] NO[/bold #FF1493]"
         summary = (res.get("summary", "") or "")[:80]
 
         summary_table.add_row(rel, status_str, risk_str, safe_str, summary)
@@ -1118,13 +1148,13 @@ def reporting_node(state: AuditState) -> AuditState:
         console.print()
 
     # ── Build markdown report ──
-    report = f"""# 🛡️ DockDesk Audit Report
+    report = f"""#  DockDesk Audit Report
 
 **Architecture:** Dual-Model (Code + Reasoning)  
 **Code Agent:** {code_model_display}  
 **Reasoning Agent:** {reasoning_display}  
 **Files Audited:** {len(results)}  
-**Status:** ✅ {pass_count} Pass | ❌ {fail_count} Fail | ⚠️ {error_count} Error
+**Status:** ✅ {pass_count} Pass | ❌ {fail_count} Fail |  {error_count} Error
 
 ## Risk Distribution
 | Level | Count |
@@ -1148,7 +1178,7 @@ def reporting_node(state: AuditState) -> AuditState:
     
     for res in results:
         status = res.get("status", "UNKNOWN")
-        icon = {"PASS": "✅", "FAIL": "❌"}.get(status, "⚠️")
+        icon = {"PASS": "✅", "FAIL": "❌"}.get(status, "")
         risk = res.get("risk", "UNKNOWN")
         risk_badge = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(risk, "⚪")
         safe = res.get("safe_to_push", None)
@@ -1263,7 +1293,7 @@ def _build_audit_tree(results: List[dict], workspace: str) -> dict:
                     # Also update root
                     root["risk_counts"][risk] = root["risk_counts"].get(risk, 0) + 1
             else:
-                # Directory node — find or create
+                # Directory node - find or create
                 found = None
                 for child in current.get("children", []):
                     if child.get("type") == "dir" and child.get("name") == part:
@@ -1322,6 +1352,10 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
                 "duration_ms": res.get("duration_ms", 0),
                 "code_model": res.get("code_model", ""),
                 "reasoning_model": res.get("reasoning_model", ""),
+                "author": res.get("author", "Unknown"),
+                "author_email": res.get("author_email", ""),
+                "last_commit": res.get("last_commit", ""),
+                "team": res.get("team", ""),
             })
 
         # Build audit tree from results for tree visualization
@@ -1339,6 +1373,10 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
                 models_used.add(res["reasoning_model"])
         data["models_used_this_run"] = sorted(models_used)
         data["orchestration_metrics"] = state.get("orchestration_metrics", {})
+
+        # Accountability data (USP)
+        data["accountability"] = state.get("accountability_data", {})
+        data["audit_chain_link"] = state.get("audit_chain_link", {})
 
         # Write to both workspace root and dashboard/public for dev server
         for dest in [

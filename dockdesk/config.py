@@ -47,7 +47,7 @@ class DockDeskConfig:
     model: str = "qwen2.5-coder:7b"
     detect_model: str = ""   # Phase 1 detection model (empty = use 'model') [DEPRECATED: use reasoning_model]
     fix_model: str = ""      # Phase 2 fix-generation model (empty = use 'model') [DEPRECATED: use reasoning_model]
-    reasoning_model: str = ""  # Logical reasoning model — DeepSeek-R1 (empty = use default)
+    reasoning_model: str = ""  # Logical reasoning model - DeepSeek-R1 (empty = use default)
     discord_webhook: str = ""  # Discord webhook URL for audit notifications
     discord_bot_token: str = ""  # Discord bot token for slash-command bot mode
     discord_bot_guild_id: str = ""  # Optional guild ID to scope slash command sync
@@ -69,7 +69,7 @@ class DockDeskConfig:
     fail_on_risk: RiskLevel = RiskLevel.HIGH
     max_files: int = 0  # 0 = no limit (was 100 but never enforced; now wired)
     timeout_per_file: int = 120  # Seconds
-    max_file_size: int = 512000  # 500 KB — skip binaries/lockfiles
+    max_file_size: int = 512000  # 500 KB - skip binaries/lockfiles
     
     # Dashboard
     enable_changelog: bool = True
@@ -342,7 +342,7 @@ model: qwen2.5-coder:7b  # Use --list-models to see options
 ollama_host: http://localhost:11434
 temperature: 0.1
 
-# Dual-Model Pipeline (optional — leave empty to use 'model' for both)
+# Dual-Model Pipeline (optional - leave empty to use 'model' for both)
 # detect_model: deepseek-r1:1.5b    # Fast reasoning model for Phase 1 detection
 # fix_model: qwen2.5-coder:3b       # Code-capable model for Phase 2 fix generation
 

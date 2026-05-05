@@ -170,7 +170,7 @@ def apply_fix(
         result.new_hash = get_file_hash(file_path)
         result.status = FixStatus.APPLIED
         
-        console.print(f"[green]✓ Applied fix to {file_path}[/green]")
+        console.print(f"[green] Applied fix to {file_path}[/green]")
         if backup_path:
             console.print(f"[dim]  Backup: {backup_path}[/dim]")
             
@@ -283,7 +283,7 @@ def _interactive_fix_prompt(file_path: str, fix_content: str, fix_type: FixType)
             _show_diff(file_path, fix_content)
         elif choice in ("e", "edit"):
             edited = _open_in_editor(file_path, fix_content)
-            console.print(f"[green]✓ Edited fix ({len(edited)} chars)[/green]")
+            console.print(f"[green] Edited fix ({len(edited)} chars)[/green]")
             return edited  # Return the edited content to apply
         elif choice == "?":
             console.print(
@@ -371,7 +371,7 @@ def restore_from_backup(backup_path: str, original_path: str) -> bool:
     """Restore a file from backup."""
     try:
         shutil.copy2(backup_path, original_path)
-        console.print(f"[green]✓ Restored {original_path} from backup[/green]")
+        console.print(f"[green] Restored {original_path} from backup[/green]")
         return True
     except Exception as e:
         console.print(f"[red]✗ Failed to restore {original_path}: {e}[/red]")

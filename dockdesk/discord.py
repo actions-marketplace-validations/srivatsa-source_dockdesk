@@ -2,7 +2,7 @@
 DockDesk Discord Webhook Integration
 
 Posts audit summaries, push-guard notifications, and reasoning verdicts
-to a Discord channel via webhook. Zero-infrastructure — just an HTTP POST.
+to a Discord channel via webhook. Zero-infrastructure - just an HTTP POST.
 
 All methods are no-ops when no webhook URL is configured.
 Failures log warnings but never crash the pipeline.
@@ -54,13 +54,13 @@ class DiscordNotifier:
         # Colour: red if HIGH, yellow if MEDIUM, green otherwise
         if high > 0:
             colour = 0xED4245   # red
-            title = "\U0001f6a8 DockDesk Audit — HIGH Risk Detected"
+            title = "\U0001f6a8 DockDesk Audit - HIGH Risk Detected"
         elif medium > 0:
             colour = 0xFEE75C   # yellow
-            title = "\u26a0\ufe0f DockDesk Audit — Medium Risk"
+            title = "\u26a0\ufe0f DockDesk Audit - Medium Risk"
         else:
             colour = 0x57F287   # green
-            title = "\u2705 DockDesk Audit — All Clear"
+            title = "\u2705 DockDesk Audit - All Clear"
 
         # Model display
         model_line = ""
@@ -143,7 +143,7 @@ class DiscordNotifier:
         embed: Dict[str, Any] = {
             "title": "\u2705 Push Approved by DockDesk",
             "color": 0x57F287,
-            "description": summary or "Audit passed — no HIGH risk findings.",
+            "description": summary or "Audit passed - no HIGH risk findings.",
             "footer": {"text": "DockDesk Pre-Push Guard"},
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -170,7 +170,7 @@ class DiscordNotifier:
         status_icon = {
             "PASS": "✅",
             "FAIL": "❌",
-            "ERROR": "⚠️",
+            "ERROR": "",
             "SKIP": "➖",
             "UNKNOWN": "❔",
         }
@@ -221,7 +221,7 @@ class DiscordNotifier:
         self.webhook_url = target_url
         try:
             embed: Dict[str, Any] = {
-                "title": "🛡️ DockDesk Test Ping",
+                "title": " DockDesk Test Ping",
                 "color": 0x57F287,
                 "description": "Discord webhook is configured and reachable.",
                 "fields": [

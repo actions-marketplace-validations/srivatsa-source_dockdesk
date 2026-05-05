@@ -1,5 +1,5 @@
 """
-DockDesk Profiles — Global configuration & named profile support.
+DockDesk Profiles - Global configuration & named profile support.
 
 Loads settings from:
   1. ~/.config/dockdesk/config.yml   (global defaults)
@@ -35,7 +35,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "skip_rag": False,
         "fast_mode": False,
         "verbose": True,
-        "description": "Maximum rigour — flags MEDIUM+ risk, uses RAG, verbose output",
+        "description": "Maximum rigour - flags MEDIUM+ risk, uses RAG, verbose output",
     },
     "fast": {
         "fail_on_risk": "HIGH",
@@ -43,7 +43,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "skip_rag": True,
         "fast_mode": True,
         "turbo": True,
-        "description": "Speed-optimised — turbo mode, skip RAG, only block on HIGH risk",
+        "description": "Speed-optimised - turbo mode, skip RAG, only block on HIGH risk",
     },
     "ci": {
         "fail_on_risk": "HIGH",
@@ -52,7 +52,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "fast_mode": True,
         "verbose": False,
         "enable_changelog": True,
-        "description": "CI/CD pipeline — non-interactive, fast, exits with code on failure",
+        "description": "CI/CD pipeline - non-interactive, fast, exits with code on failure",
     },
 }
 
@@ -202,7 +202,7 @@ reasoning_model: deepseek-r1:1.5b
 # Default Ollama host
 ollama_host: http://localhost:11434
 
-# Discord webhook (optional — applies globally)
+# Discord webhook (optional - applies globally)
 # discord_webhook: https://discord.com/api/webhooks/...
 
 # Default behaviour
