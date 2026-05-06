@@ -268,10 +268,17 @@ def _chat_interface() -> None:
             args_obj = intent.get("args", {})
             include_from_args = args_obj.get("include")
             
-            # If the user specified explicit options via NLP, we skip the target/options prompts
+            # Always resolve target first to support auditing entire nested folders properly
+            selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target, skip_prompts=bool(include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"])))
+            if selected is None:
+                continue
+            
+            target_ws, final_include = selected
+            
+            # If the user specified explicit options via NLP, we skip the options prompts
             if include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]):
-                target_ws = workspace
-                include_pattern = include_from_args
+                # Use include_from_args if NLP provided it, else fallback to what target resolution gave
+                include_pattern = include_from_args if include_from_args else final_include
                 
                 # Fetch base config
                 from dockdesk.config import build_config
@@ -280,7 +287,7 @@ def _chat_interface() -> None:
                     default_model = base_config.model
                     default_reasoning = base_config.reasoning_model
                 except Exception:
-                    default_model = "qwen2.5-coder:7b"
+                    default_model = "qwen2.5-coder:3b"
                     default_reasoning = "deepseek-r1:1.5b"
 
                 is_auto_tune = args_obj.get("auto_tune", False)
@@ -376,7 +383,7 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
     return value in {"y", "yes", "true", "1"}
 
 
-def _prompt_audit_target(current_workspace: str, suggested_target: str = "current") -> tuple[str, str | None] | None:
+def _prompt_audit_target(current_workspace: str, suggested_target: str = "current", skip_prompts: bool = False) -> tuple[str, str | None] | None:
     """Ask and validate audit target path (file or folder) before starting an audit.
 
     Returns:
@@ -387,23 +394,90 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
 
     def _resolve_user_path(raw: str) -> list[Path]:
         raw_path = Path(raw).expanduser()
+        
+        # 1. Exact Absolute
         if raw_path.is_absolute() and raw_path.exists():
             return [raw_path.resolve()]
         
+        # 2. Exact Relative
         rel_cand = (current / raw_path).resolve()
         if rel_cand.exists():
             return [rel_cand]
+        
+        # 3. LLM Fuzzy matching with gemma:7b
+        try:
+            from dockdesk.ollama_pool import OllamaPool
+            pool = OllamaPool(["http://localhost:11434"], run_health_check=False)
+            llm = pool.get_llm(model="gemma:7b", format="json", num_predict=256)
+            
+            # Get list of immediate items in current directory
+            items = []
+            try:
+                for p in current.iterdir():
+                    if not p.name.startswith("."):
+                        items.append(p.name + ('/' if p.is_dir() else ''))
+            except Exception:
+                pass
                 
-        return []
+            prompt = f"""
+You are an intelligent file/folder matching agent.
+The user wants to audit something and typed: "{raw}"
+Here are the files and folders in the current directory:
+{', '.join(items)}
+
+Find up to 5 items that might match their intent. If "uap sandbox" is requested, match "UAP sandbox/".
+Output a JSON list of matches exactly as they appear in the list.
+Example: ["UAP sandbox/"] or ["src/", "package.json"]
+"""
+            resp = llm.invoke([("user", prompt)])
+            import json
+            content = resp.content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.endswith("```"):
+                content = content[:-3]
+            try:
+                matched_names = json.loads(content)
+            except json.JSONDecodeError:
+                matched_names = []
+            
+            if isinstance(matched_names, dict) and "matches" in matched_names:
+                matched_names = matched_names["matches"]
+            if not isinstance(matched_names, list):
+                matched_names = [str(matched_names)]
+            
+            fuzzy_matches = []
+            for name in matched_names:
+                clean_name = name.rstrip("/")
+                cand = (current / clean_name).resolve()
+                if cand.exists():
+                    fuzzy_matches.append(cand)
+            if fuzzy_matches:
+                return fuzzy_matches
+        except Exception:
+            pass
+            
+        # 4. Fallback fast substring matching if LLM fails
+        subs = []
+        try:
+            for p in current.iterdir():
+                if p.name.startswith("."): continue
+                if raw.lower() in p.name.lower() or p.name.lower() in raw.lower():
+                    subs.append(p.resolve())
+        except Exception:
+            pass
+            
+        return subs
 
     def _select_from_matches(matches: list[Path], raw: str) -> Path | None:
         if not matches:
             return None
-        if len(matches) == 1:
-            console.print(f"[green][+] Match Found:[/green] {matches[0]}")
+        if len(matches) == 1 or skip_prompts:
+            if not skip_prompts:
+                console.print(f"[green]🤖 I found exactly what you meant:[/green] {matches[0]}")
             return matches[0]
 
-        console.print(f"\n[yellow][*] Multiple matches found for '{raw}':[/yellow]")
+        console.print(f"\n[green]🤖 I found these as matches for '{raw}', which one do you want to audit?[/green]")
         for idx, match in enumerate(matches, 1):
             console.print(f"[#DA70D6]{idx}[/#DA70D6] [#FF69B4]{match}[/#FF69B4]")
             
@@ -425,12 +499,27 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
             if target.is_file():
                 ws = target.parent.resolve()
                 include = target.name
-                console.print(f"[green][+] Auditing file:[/green] {target}")
+                if not skip_prompts:
+                    console.print(f"[green]🤖 Auditing individual file:[/green] {target}")
                 return str(ws), include
 
             if target.is_dir():
-                console.print(f"[green][+] Auditing folder:[/green] {target}")
-                return str(target.resolve()), None
+                if skip_prompts:
+                    return str(target.resolve()), None
+                    
+                # Agent ask for entire folder vs individual files, wait no we just audit folder but let's prompt if they want entire folder or individual files
+                
+                console.print(f"[green]🤖 Auditing folder:[/green] {target}")
+                sub_choice = Prompt.ask("[#FF00FF]Do you want to audit the entire folder (all files) or just specific individual files? (entire/specific)[/#FF00FF]", default="entire").strip().lower()
+                
+                if sub_choice.startswith("entire"):
+                    return str(target.resolve()), None
+                else:
+                    # Let them pick a pattern
+                    pattern = Prompt.ask("[#FF00FF]What kind of files? (e.g. *.py, src/**/*.js)[/#FF00FF]", default="*.*").strip()
+                    return str(target.resolve()), pattern
+    elif skip_prompts:
+        return str(current), None
 
     console.print(Panel(
         "[bold #FF1493]Audit Target[/bold #FF1493]\n"
@@ -456,25 +545,30 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
         target = _select_from_matches(matches, raw)
         
         if not target:
-            console.print("[yellow][!] Target not found or selection cancelled. Falling back to folder browser.[/yellow]")
+            console.print("[yellow]🤖 I couldn't find a good match for that. Let's browse manually.[/yellow]")
             picked = _browse_for_workspace(current)
             if not picked:
                 continue
             return str(picked.resolve()), None
 
         if not target.exists():
-            console.print(f"[bold red][-] Path not found: {target}[/bold red]")
+            console.print(f"[bold red]🤖 I couldn't find the path: {target}[/bold red]")
             continue
 
         if target.is_file():
             ws = target.parent.resolve()
             include = target.name
-            console.print(f"[green][+] Auditing file:[/green] {target}")
+            console.print(f"[green]🤖 Auditing individual file:[/green] {target}")
             return str(ws), include
 
         if target.is_dir():
-            console.print(f"[green][+] Auditing folder:[/green] {target}")
-            return str(target.resolve()), None
+            console.print(f"[green]🤖 Auditing folder:[/green] {target}")
+            sub_choice = Prompt.ask("[#FF00FF]Do you want to audit the entire folder (all files) or just specific individual files? (entire/specific)[/#FF00FF]", default="entire").strip().lower()
+            if sub_choice.startswith("entire"):
+                return str(target.resolve()), None
+            else:
+                pattern = Prompt.ask("[#FF00FF]What kind of files? (e.g. *.py, src/**/*.js)[/#FF00FF]", default="*.*").strip()
+                return str(target.resolve()), pattern
 
         console.print("[yellow][!] Unsupported target type. Choose a file or folder.[/yellow]")
 
@@ -493,7 +587,7 @@ def _interactive_audit_options(workspace: str, include_pattern: str | None = Non
         default_rotate_models = getattr(base_config, 'rotate_models', False)
         default_turbo = getattr(base_config, 'turbo', False)
     except Exception:
-        default_model = "qwen2.5-coder:7b"
+        default_model = "qwen2.5-coder:3b"
         default_reasoning_model = "deepseek-r1:1.5b"
         default_out_format = "md"
         default_auto_tune = False
@@ -741,6 +835,10 @@ def run_audit(args):
         risk_thres=config.fail_on_risk.name
     )
 
+    from dockdesk.rag import HAS_RAG_DEPS
+    if not config.skip_rag and not HAS_RAG_DEPS:
+        console.print("[bold yellow][!] RAG Warning:[/bold yellow] RAG dependencies (chromadb, sentence_transformers) are not installed. Contextual search will be bypassed.")
+
     if getattr(config, "rotate_models", False):
         available = [m for m in get_available_ollama_models() if is_model_audit_suitable(m)]
         if available:
@@ -751,6 +849,20 @@ def run_audit(args):
             console.print("[dim]  Rotation: requested but no local audit-suitable models were found[/dim]")
 
     changelog = ChangelogWriter(workspace, config.changelog_file) if config.enable_changelog else None
+
+    # Check Ollama health
+    import requests
+    ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    if getattr(config, "ollama_urls", None):
+        ollama_url = config.ollama_urls[0]
+    try:
+        requests.get(f"{ollama_url}/api/tags", timeout=3).raise_for_status()
+    except Exception as e:
+        console.print(f"\n[bold red][-] Ollama Health Check Failed:[/bold red] Could not connect to {ollama_url}")
+        console.print(f"[red]Error:[/red] [dim]{e}[/dim]")
+        console.print("[yellow]Is Ollama running? Try starting it with 'ollama serve'.[/yellow] \n")
+        return 1
+
     app = create_audit_graph()
 
     initial_state = {
@@ -773,7 +885,8 @@ def run_audit(args):
     }
 
     try:
-        result = app.invoke(initial_state)
+        with console.status("[bold cyan]Models warming up & auditing codebase...[/bold cyan]", spinner="dots"):
+            result = app.invoke(initial_state)
         audit_results = result.get("audit_results", [])
 
         fix_results = None
@@ -992,7 +1105,24 @@ def open_react_dashboard_cmd(args):
         dashboard_cmd(argparse.Namespace(workspace=workspace, export=data_file, open=False))
         console.print("[green]    Data exported[/green]")
     else:
-        console.print("[yellow]  No audit history yet - dashboard will show sample data[/yellow]")
+        console.print("[yellow]  No audit history yet - generating empty dashboard data.[/yellow]")
+        import json
+        with open(data_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "history": [],
+                "latest": {
+                    "metrics": {
+                        "files_analyzed": 0,
+                        "findings_count": 0,
+                        "safe_to_push": 0,
+                        "unsafe_to_push": 0
+                    },
+                    "pass_fail_distribution": {"PASS": 0, "FAIL": 0},
+                    "risk_distribution": {"HIGH": 0, "MEDIUM": 0, "LOW": 0},
+                    "models_per_file": {}
+                },
+                "accountability": {"developers": {}}
+            }, f)
 
     # Check if node is available
     npx = shutil.which("npx")

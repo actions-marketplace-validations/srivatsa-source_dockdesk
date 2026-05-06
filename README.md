@@ -1,4 +1,4 @@
-# DockDesk v3.0.0
+# DockDesk v3.0.1
 
 **Local-First Semantic Documentation Auditor**
 
@@ -59,6 +59,17 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 | **🧭 Launcher Commands** | Open the React dashboard, start the Rich TUI, or run the Discord bot from the CLI |
 | **🎲 Model Rotation** | `--rotate-models` round-robins local audit-suitable models per file |
 | **📄 Export Upgrades** | Dashboard exports now include quick Excel, CSV, and print-friendly PDF output |
+
+## What's New in v3.0.1
+
+Changelog (patch release):
+
+| Fix | Description |
+|------|-------------|
+| **CLI: Audit discovery** | Resolved interactive prompt regressions so NLP-specified folder targets run non-interactively when provided (fixes `--auto-tune` NLP workflows). |
+| **Runtime: cache & pool initialization** | Fixed NameError crashes by making cache / Ollama pool instantiation defensive and scoped per-run. This prevents cross-run contamination and crashes during audit pipeline execution. |
+| **Stability** | Improved error handling during LLM subprocess reads to avoid crashes from unexpected encodings; further decoding hardening is planned. |
+
 
 ## What's New in v2.3
 

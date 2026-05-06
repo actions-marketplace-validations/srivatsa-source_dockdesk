@@ -24,6 +24,7 @@ from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 from rich import box
@@ -324,9 +325,19 @@ class TUIDashboard:
         return bar
 
     def _make_status_bar(self) -> Text:
+        try:
+            from dockdesk.rag import HAS_RAG_DEPS
+            rag_status = "Enabled" if HAS_RAG_DEPS else "Disabled"
+            rag_color = "green" if HAS_RAG_DEPS else "dim red"
+        except ImportError:
+            rag_status = "Unknown"
+            rag_color = "dim"
+
         bar = Text()
         bar.append("  DockDesk TUI ", style=f"bold {HOT_PINK} on {DIM_PURPLE}")
         bar.append(f"  {Path(self.workspace).name}  ", style=f"dim {ORCHID}")
+        bar.append("│ ", style=f"dim {PURPLE}")
+        bar.append(f"RAG Status: {rag_status} ", style=f"bold {rag_color}")
         bar.append("│ ", style=f"dim {PURPLE}")
         if self.filtering:
             bar.append(f"/{self.filter_text}█", style=f"bold {CYAN_ACCENT}")

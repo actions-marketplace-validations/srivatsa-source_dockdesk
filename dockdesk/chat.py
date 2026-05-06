@@ -98,7 +98,7 @@ Rules:
 - If the user asks "show recent audits", map to "dashboard" with section "recent".
 """
 
-def parse_intent(user_input: str, pool: Optional[OllamaPool] = None, model: str = "gemma:2b", workspace_path: str = "") -> Dict[str, Any]:
+def parse_intent(user_input: str, pool: Optional[OllamaPool] = None, model: str = "gemma:7b", workspace_path: str = "") -> Dict[str, Any]:
     """Parse a natural language user string into a structured intent."""
     clean_input = user_input.strip().lower()
     

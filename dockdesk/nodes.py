@@ -28,34 +28,47 @@ LEGACY_CACHE_DIR = ".dockdesk_cache"
 DEFAULT_MODEL = "qwen2.5-coder:7b"                 # Code analysis (the "hands")
 DEFAULT_REASONING_MODEL = "deepseek-r1:1.5b"  # Logical reasoning (the "brain")
 DEFAULT_TEMPERATURE = 0.1
-
 # ── Module-level singletons (migrated to state in v3) ──
-# _cache, _pool, _plugin_mgr, _current_workspace removed to prevent cross-run contamination
+# Keep simple module-level placeholders to avoid NameError in node functions.
+# Concrete initialization occurs per-run inside `_init_infrastructure`.
+_cache = None
+_pool = None
+_plugin_mgr = None
+_current_workspace = None
+
 
 def _init_infrastructure(workspace: str, config=None):
-    """Initialize cache + OllamaPool. Re-initializes if workspace changes."""
-    # Instantiation logic moved to pipeline orchestrator
-    pass
+    """Initialize cache + OllamaPool. Re-initializes if workspace changes.
+
+    This function assigns module-level placeholders so other nodes can
+    reference `_cache` and `_pool` safely. It tolerates failures and
+    leaves placeholders as None when initialization cannot complete.
+    """
+    global _cache, _pool, _plugin_mgr, _current_workspace
 
     _current_workspace = workspace
 
     # SQLite cache
-    _cache = ResultCache(workspace)
-
-    # Migrate old JSON cache if exists
-    legacy_dir = os.path.join(workspace, LEGACY_CACHE_DIR)
-    if os.path.isdir(legacy_dir):
-        count = _cache.migrate_from_json_cache(legacy_dir)
-        if count > 0:
-            console.print(f"[dim]  Migrated {count} cached results to SQLite[/dim]")
+    try:
+        _cache = ResultCache(workspace)
+        # Migrate old JSON cache if exists
+        legacy_dir = os.path.join(workspace, LEGACY_CACHE_DIR)
+        if os.path.isdir(legacy_dir):
+            count = _cache.migrate_from_json_cache(legacy_dir)
+            if count > 0:
+                console.print(f"[dim]  Migrated {count} cached results to SQLite[/dim]")
+    except Exception:
+        _cache = None
 
     # Clear cache if requested
-    if config and getattr(config, 'clear_cache', False):
-        _cache.clear()
-        console.print("[dim]  Cache cleared[/dim]")
+    try:
+        if config and getattr(config, 'clear_cache', False) and _cache:
+            _cache.clear()
+            console.print("[dim]  Cache cleared[/dim]")
+    except Exception:
+        pass
 
     # Plugin manager
-    global _plugin_mgr
     try:
         from .plugins import PluginManager
         _plugin_mgr = PluginManager(workspace).discover()
@@ -63,16 +76,20 @@ def _init_infrastructure(workspace: str, config=None):
         _plugin_mgr = None
 
     # OllamaPool
-    urls = None
-    if config:
-        url_list = config.get_ollama_url_list() if hasattr(config, 'get_ollama_url_list') else []
-        if url_list:
-            urls = url_list
-        elif config.ollama_host:
-            urls = [config.ollama_host]
-    _pool = OllamaPool(urls)
-    if _pool.size > 1:
-        console.print(f"[white][*] Ollama pool: {_pool.size} endpoints[/white]")
+    try:
+        urls = None
+        if config:
+            url_list = config.get_ollama_url_list() if hasattr(config, 'get_ollama_url_list') else []
+            if url_list:
+                urls = url_list
+            elif getattr(config, 'ollama_host', None):
+                urls = [config.ollama_host]
+        if urls:
+            _pool = OllamaPool(urls)
+            if _pool and getattr(_pool, 'size', 0) > 1:
+                console.print(f"[white][*] Ollama pool: {_pool.size} endpoints[/white]")
+    except Exception:
+        _pool = None
 
 # Node: Discover Files (Monorepo-optimized)
 def discover_node(state: AuditState) -> AuditState:
@@ -403,6 +420,27 @@ def _select_docs_for_file(file_path: str, doc_sources: List[dict], top_k: int = 
 def code_analysis_node(state: AuditState) -> AuditState:
     if not state["changed_files"]:
         return {"code_findings": []}
+
+    config = state.get("config")
+    workspace = state["workspace_path"]
+    _cache = None
+    if config and not getattr(config, 'clear_cache', False):
+        try:
+            from dockdesk.cache import ResultCache
+            _cache = ResultCache(workspace)
+        except Exception:
+            pass
+
+    _pool = None
+    if config:
+        urls = []
+        if getattr(config, 'pool', None):
+            urls = config.pool.split(',')
+        elif getattr(config, 'ollama_host', None):
+            urls = [config.ollama_host]
+        if urls:
+            from dockdesk.ollama_pool import OllamaPool
+            _pool = OllamaPool(urls)
 
     console.print("[bold cyan]Step 4:[/bold cyan] [white]Code Analysis[/white] [dim](Qwen Coder)[/dim]")
 

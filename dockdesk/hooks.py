@@ -29,20 +29,20 @@ PRE_PUSH_SCRIPT_UNIX = '''#!/bin/sh
 
 echo "\\033[35m DockDesk pre-push audit running...\\033[0m"
 
-python -m dockdesk audit --workspace . --fast --turbo --format json 2>/dev/null
+"{python_executable}" -m dockdesk audit --workspace . --fast --turbo --format json 2>/dev/null
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
     echo "\\033[31m DockDesk: Push BLOCKED - audit found HIGH risk issues.\\033[0m"
     echo "\\033[33m  Run 'dockdesk audit' for full details.\\033[0m"
 
-    # Attempt Discord notification
-    python -c "
+    # Attempt Discord notification asynchronously
+    "{python_executable}" -c "
 from dockdesk.discord import DiscordNotifier
 n = DiscordNotifier()
 if n.enabled:
     n.post_push_blocked('Pre-push hook blocked a push due to HIGH risk findings.')
-" 2>/dev/null
+" 2>/dev/null &
 
     exit 1
 fi
@@ -57,12 +57,21 @@ PRE_PUSH_SCRIPT_WINDOWS = '''#!/bin/sh
 
 echo "DockDesk pre-push audit running..."
 
-python -m dockdesk audit --workspace . --fast --turbo --format json 2>NUL
+"{python_executable}" -m dockdesk audit --workspace . --fast --turbo --format json 2>NUL
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
     echo "DockDesk: Push BLOCKED - audit found HIGH risk issues."
     echo "  Run 'dockdesk audit' for full details."
+
+    # Attempt Discord notification asynchronously (Git Bash provides /bin/sh so & works)
+    "{python_executable}" -c "
+from dockdesk.discord import DiscordNotifier
+n = DiscordNotifier()
+if n.enabled:
+    n.post_push_blocked('Pre-push hook blocked a push due to HIGH risk findings.')
+" 2>NUL &
+
     exit 1
 fi
 
@@ -114,6 +123,8 @@ def install_hooks(workspace: str) -> bool:
 
     script = PRE_PUSH_SCRIPT_WINDOWS if os.name == "nt" else PRE_PUSH_SCRIPT_UNIX
     script = script.replace("{marker}", HOOK_MARKER)
+    python_exe = sys.executable.replace("\\", "/")
+    script = script.replace("{python_executable}", python_exe)
 
     hook_path.write_text(script, encoding="utf-8")
 

@@ -17,6 +17,9 @@ console = Console()
 # NameError when RAG deps are not installed.
 _EXT_LANGUAGE_MAP = None
 
+def get_chroma(workspace: str):
+    pass
+
 
 def _get_ext_language_map():
     """Lazily build and cache the extension→Language mapping."""

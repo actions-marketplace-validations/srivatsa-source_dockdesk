@@ -82,6 +82,15 @@ AUDIT_MODELS: Dict[str, AuditModel] = {
         max_context=4096,
         recommended_loc=(0, 10000),
     ),
+    "gemma:2b": AuditModel(
+        name="gemma:2b",
+        tier=ModelTier.SMALL,
+        params_b=2.0,
+        description="Google's lightweight Gemma model. Good for quick general tasks.",
+        strengths=["Fast", "Google AI", "Reasoning"],
+        max_context=8192,
+        recommended_loc=(0, 5000),
+    ),
     
     # Medium tier (5-10B) - Balanced performance
     "qwen2.5-coder:7b": AuditModel(
@@ -91,6 +100,15 @@ AUDIT_MODELS: Dict[str, AuditModel] = {
         description="Balanced performance and quality.",
         strengths=["Accurate", "Good reasoning", "Detailed fixes"],
         max_context=32768,
+        recommended_loc=(5000, 50000),
+    ),
+    "codegemma:7b": AuditModel(
+        name="codegemma:7b",
+        tier=ModelTier.MEDIUM,
+        params_b=7.0,
+        description="Google's CodeGemma model tailored for coding tasks.",
+        strengths=["Google AI", "Code completion", "Strong code understanding"],
+        max_context=8192,
         recommended_loc=(5000, 50000),
     ),
     "codellama:7b": AuditModel(
