@@ -176,7 +176,7 @@ def _render_project_table(projects: list[tuple[Path, str]], base_dir: Path) -> N
     console.print(table)
 
 
-def _browse_for_workspace(start_dir: Path) -> Path | None:
+def _browse_for_workspace(start_dir: Path, *, enter_on_select: bool = True) -> Path | None:
     """Simple folder picker that works in plain terminals."""
     current = start_dir.resolve()
 
@@ -219,8 +219,10 @@ def _browse_for_workspace(start_dir: Path) -> Path | None:
         if choice.isdigit():
             idx = int(choice) - 1
             if 0 <= idx < len(dirs):
-                current = dirs[idx]
-                continue
+                if enter_on_select:
+                    current = dirs[idx]
+                    continue
+                return dirs[idx].resolve()
         console.print("[yellow][!] Invalid choice.[/yellow]")
 
 
@@ -345,7 +347,7 @@ def _chat_interface() -> None:
         elif action == "change_workspace":
             path = intent.get("path", "browse")
             if path == "browse":
-                picked = _browse_for_workspace(Path(workspace))
+                picked = _browse_for_workspace(Path(workspace), enter_on_select=True)
                 if picked:
                     workspace = str(picked.resolve())
             else:
@@ -393,7 +395,10 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
     current = Path(current_workspace).expanduser().resolve()
 
     def _resolve_user_path(raw: str) -> list[Path]:
+        raw = raw.strip().strip('"').strip("'").strip("`")
+        raw = os.path.expandvars(raw)
         raw_path = Path(raw).expanduser()
+        looks_like_path = any(sep in raw for sep in ("\\", "/")) or raw_path.drive != "" or raw.startswith(".")
         
         # 1. Exact Absolute
         if raw_path.is_absolute() and raw_path.exists():
@@ -403,71 +408,59 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
         rel_cand = (current / raw_path).resolve()
         if rel_cand.exists():
             return [rel_cand]
-        
-        # 3. LLM Fuzzy matching with gemma:7b
-        try:
-            from dockdesk.ollama_pool import OllamaPool
-            pool = OllamaPool(["http://localhost:11434"], run_health_check=False)
-            llm = pool.get_llm(model="gemma:7b", format="json", num_predict=256)
-            
-            # Get list of immediate items in current directory
-            items = []
-            try:
-                for p in current.iterdir():
-                    if not p.name.startswith("."):
-                        items.append(p.name + ('/' if p.is_dir() else ''))
-            except Exception:
-                pass
-                
-            prompt = f"""
-You are an intelligent file/folder matching agent.
-The user wants to audit something and typed: "{raw}"
-Here are the files and folders in the current directory:
-{', '.join(items)}
 
-Find up to 5 items that might match their intent. If "uap sandbox" is requested, match "UAP sandbox/".
-Output a JSON list of matches exactly as they appear in the list.
-Example: ["UAP sandbox/"] or ["src/", "package.json"]
-"""
-            resp = llm.invoke([("user", prompt)])
-            import json
-            content = resp.content.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
-            try:
-                matched_names = json.loads(content)
-            except json.JSONDecodeError:
-                matched_names = []
-            
-            if isinstance(matched_names, dict) and "matches" in matched_names:
-                matched_names = matched_names["matches"]
-            if not isinstance(matched_names, list):
-                matched_names = [str(matched_names)]
-            
-            fuzzy_matches = []
-            for name in matched_names:
-                clean_name = name.rstrip("/")
-                cand = (current / clean_name).resolve()
-                if cand.exists():
-                    fuzzy_matches.append(cand)
-            if fuzzy_matches:
-                return fuzzy_matches
-        except Exception:
-            pass
-            
-        # 4. Fallback fast substring matching if LLM fails
-        subs = []
+        # If the user pasted a path-like value, do not invent fuzzy matches.
+        if looks_like_path:
+            return []
+        
+        # 3. Unbreakable Local Fuzzy & Substring Match
+        import difflib
+        matches = []
+        ignored_dirs = {".git", "node_modules", ".venv", ".dockdesk_cache", "dist", "build", "__pycache__"}
+        
         try:
-            for p in current.iterdir():
-                if p.name.startswith("."): continue
-                if raw.lower() in p.name.lower() or p.name.lower() in raw.lower():
-                    subs.append(p.resolve())
+            for root, dirs, files in os.walk(current):
+                # Filter in-place
+                dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+                
+                rel_depth = len(Path(root).relative_to(current).parts)
+                if rel_depth > 3:
+                    dirs[:] = []
+                    continue
+                
+                # Scan files
+                for f in files:
+                    if raw.lower() in f.lower():
+                        matches.append((1.0 if raw.lower() == f.lower() else 0.7, Path(root) / f))
+                
+                # Scan directories
+                for d in dirs:
+                    d_path = Path(root) / d
+                    d_name = d.lower()
+                    query = raw.lower()
+                    
+                    score = 0.0
+                    if query == d_name:
+                        score = 1.0
+                    elif query in d_name:
+                        score = 0.9 - (len(d_name) - len(query)) * 0.01
+                    else:
+                        score = difflib.SequenceMatcher(None, query, d_name).ratio()
+                        
+                    if score > 0.5:
+                        # Project marker boost
+                        try:
+                            markers = ["pyproject.toml", "package.json", "Cargo.toml", ".git", "requirements.txt"]
+                            if any(os.path.exists(os.path.join(d_path, m)) for m in markers):
+                                score += 0.15
+                        except Exception:
+                            pass
+                        matches.append((score, d_path))
         except Exception:
             pass
             
-        return subs
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return [m[1] for m in matches[:5]]
 
     def _select_from_matches(matches: list[Path], raw: str) -> Path | None:
         if not matches:
@@ -504,20 +497,8 @@ Example: ["UAP sandbox/"] or ["src/", "package.json"]
                 return str(ws), include
 
             if target.is_dir():
-                if skip_prompts:
-                    return str(target.resolve()), None
-                    
-                # Agent ask for entire folder vs individual files, wait no we just audit folder but let's prompt if they want entire folder or individual files
-                
                 console.print(f"[green]🤖 Auditing folder:[/green] {target}")
-                sub_choice = Prompt.ask("[#FF00FF]Do you want to audit the entire folder (all files) or just specific individual files? (entire/specific)[/#FF00FF]", default="entire").strip().lower()
-                
-                if sub_choice.startswith("entire"):
-                    return str(target.resolve()), None
-                else:
-                    # Let them pick a pattern
-                    pattern = Prompt.ask("[#FF00FF]What kind of files? (e.g. *.py, src/**/*.js)[/#FF00FF]", default="*.*").strip()
-                    return str(target.resolve()), pattern
+                return str(target.resolve()), None
     elif skip_prompts:
         return str(current), None
 
@@ -534,7 +515,7 @@ Example: ["UAP sandbox/"] or ["src/", "package.json"]
         if raw.lower() == "q":
             return None
         if raw.lower() == "b":
-            picked = _browse_for_workspace(current)
+            picked = _browse_for_workspace(current, enter_on_select=False)
             if not picked:
                 continue
             return str(picked.resolve()), None
@@ -546,7 +527,7 @@ Example: ["UAP sandbox/"] or ["src/", "package.json"]
         
         if not target:
             console.print("[yellow]🤖 I couldn't find a good match for that. Let's browse manually.[/yellow]")
-            picked = _browse_for_workspace(current)
+            picked = _browse_for_workspace(current, enter_on_select=False)
             if not picked:
                 continue
             return str(picked.resolve()), None
@@ -563,12 +544,7 @@ Example: ["UAP sandbox/"] or ["src/", "package.json"]
 
         if target.is_dir():
             console.print(f"[green]🤖 Auditing folder:[/green] {target}")
-            sub_choice = Prompt.ask("[#FF00FF]Do you want to audit the entire folder (all files) or just specific individual files? (entire/specific)[/#FF00FF]", default="entire").strip().lower()
-            if sub_choice.startswith("entire"):
-                return str(target.resolve()), None
-            else:
-                pattern = Prompt.ask("[#FF00FF]What kind of files? (e.g. *.py, src/**/*.js)[/#FF00FF]", default="*.*").strip()
-                return str(target.resolve()), pattern
+            return str(target.resolve()), None
 
         console.print("[yellow][!] Unsupported target type. Choose a file or folder.[/yellow]")
 
@@ -598,9 +574,48 @@ def _interactive_audit_options(workspace: str, include_pattern: str | None = Non
 
     console.print(Panel(
         "[bold #FF1493]Quick Audit Options[/bold #FF1493]\n"
-        "[dim]Press Enter to accept defaults. Type 'q' to cancel and return.[/dim]",
+        "[dim]Press Enter to accept standard settings (Fast, Auto-tuned, Cache enabled),\n"
+        "or type 'c' to customize options manually.[/dim]",
         border_style="#8A2BE2"
     ))
+
+    choice = Prompt.ask("[#DA70D6]Use standard recommended settings? (Y/c)[/#DA70D6]", default="y").strip().lower()
+    if choice == 'q':
+        return None
+    if choice != 'c':
+        # Fast-track path: return argparse namespace with recommended defaults
+        return argparse.Namespace(
+            workspace=workspace,
+            model=None,
+            detect_model=None,
+            fix_model=None,
+            reasoning_model=default_reasoning_model,
+            discord_webhook=None,
+            auto_tune=True,
+            fix=False,
+            fix_code=False,
+            ci=False,
+            verbose=False,
+            format=default_out_format,
+            output=None,
+            fail_on_risk="HIGH",
+            skip_rag=True,
+            max_files=None,
+            max_file_size=None,
+            include=include_pattern,
+            exclude=None,
+            workers=None,
+            ollama_urls=None,
+            fast=True,
+            batch_size=None,
+            clear_cache=None,
+            no_gitignore=False,
+            turbo=True,
+            keep_clone=False,
+            rules=None,
+            force_full_scan=None,
+            rotate_models=False,
+        )
 
     model = Prompt.ask("[#DA70D6]Code model[/#DA70D6]", default=default_model).strip()
     if model.lower() == "q":
@@ -1100,7 +1115,7 @@ def open_react_dashboard_cmd(args):
     # Export audit data if history exists
     os.makedirs(public_dir, exist_ok=True)
     if os.path.exists(history):
-        console.print("[white]📊 Exporting audit data...[/white]")
+        console.print("[white]Exporting audit data...[/white]")
         # Export logic internally
         dashboard_cmd(argparse.Namespace(workspace=workspace, export=data_file, open=False))
         console.print("[green]    Data exported[/green]")
@@ -1127,13 +1142,13 @@ def open_react_dashboard_cmd(args):
     # Check if node is available
     npx = shutil.which("npx")
     if not npx:
-        console.print("\n[bold red]❌ Node.js not found! Install from: https://nodejs.org[/bold red]")
+        console.print("\n[bold red]Node.js not found! Install from: https://nodejs.org[/bold red]")
         return
 
     # Install deps if needed
     node_modules = os.path.join(dashboard_dir, "node_modules")
     if not os.path.exists(node_modules):
-        console.print("[white]📦 Installing dashboard dependencies (first time only)...[/white]")
+        console.print("[white]Installing dashboard dependencies (first time only)...[/white]")
         subprocess.run(["npm", "install"], cwd=dashboard_dir, capture_output=True, shell=True)
 
     # Start Vite dev server
@@ -1143,6 +1158,25 @@ def open_react_dashboard_cmd(args):
         subprocess.run(["npx", "vite", "--port", "3000", "--open"], cwd=dashboard_dir, shell=True)
     except KeyboardInterrupt:
         console.print("\n\n[green] Dashboard stopped[/green]")
+
+
+def _is_valid_dashboard_payload(path: str) -> bool:
+    """Return True when an existing dashboard export has useful content."""
+    try:
+        if not os.path.exists(path):
+            return False
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return False
+        stats = data.get("stats", {})
+        if stats.get("total_audits", 0) > 0:
+            return True
+        if data.get("recent_runs") or data.get("latest_run_files"):
+            return True
+        return False
+    except Exception:
+        return False
 
 
 def dashboard_cmd(args):
@@ -1165,8 +1199,8 @@ def dashboard_cmd(args):
         
         # Prefer the rich dashboard data generated by the primary audit process
         enriched_data_path = os.path.join(args.workspace, "dashboard_data.json")
-        if os.path.exists(enriched_data_path):
-            console.print(f"[white]📊 Copying enriched dashboard data to {export_path}...[/white]")
+        if _is_valid_dashboard_payload(enriched_data_path):
+            console.print(f"[white]Copying enriched dashboard data to {export_path}...[/white]")
             shutil.copy2(enriched_data_path, export_path)
             console.print(f"[green] Exported rich dashboard data: {export_path}[/green]")
             return
@@ -1414,6 +1448,11 @@ Examples:
     hooks_status_p = hooks_sub.add_parser("status", help="Check hook installation status")
     hooks_status_p.add_argument("--workspace", default=".", help="Workspace path")
 
+    # pipeline subcommand
+    pipeline_parser = subparsers.add_parser("pipeline", help="Monitor the CI/CD pipeline runs")
+    pipeline_parser.add_argument("--workspace", default=".", help="Workspace path")
+    pipeline_parser.set_defaults(func=pipeline_cmd)
+
     # Backward compat: audit args on root parser
     add_audit_args(parser)
 
@@ -1445,6 +1484,8 @@ Examples:
         _handle_completion_cmd(args)
     elif args.command == "hooks":
         _handle_hooks_cmd(args)
+    elif args.command == "pipeline":
+        pipeline_cmd(args)
     else:
         run_audit(args)
 
@@ -1523,6 +1564,72 @@ def _handle_hooks_cmd(args) -> None:
         hooks_status(workspace)
     else:
         hooks_status(workspace)
+
+
+def pipeline_cmd(args):
+    """Handle `dockdesk pipeline` command to display CI/CD pipeline statistics and runs."""
+    from dockdesk.changelog import ChangelogReader
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.console import Console
+    
+    console = Console()
+    workspace = os.path.abspath(args.workspace)
+    history_file = os.path.join(workspace, "audit_history.jsonl")
+    
+    reader = ChangelogReader(history_file)
+    data = reader.export_for_dashboard()
+    pipeline = data.get("pipeline_monitoring", {})
+    
+    if not pipeline or pipeline.get("total_runs", 0) == 0:
+        console.print(Panel(
+            "[bold yellow]No CI/CD pipeline runs detected yet![/bold yellow]\n\n"
+            "To track pipeline runs, trigger an audit in CI mode by using the [bold]--ci[/bold] flag:\n"
+            "[cyan]dockdesk audit --ci[/cyan]",
+            border_style="yellow",
+            title="CI/CD Pipeline Monitoring"
+        ))
+        return
+        
+    total = pipeline.get("total_runs", 0)
+    rate = pipeline.get("success_rate", 100)
+    avg_dur = pipeline.get("average_duration", 0.0)
+    
+    # Styled Panel with Pipeline Health
+    rate_color = "green" if rate >= 80 else "yellow" if rate >= 50 else "red"
+    console.print(Panel(
+        f"  [bold]Total CI/CD Runs:[/bold] {total}\n"
+        f"  [bold]Overall Success Rate:[/bold] [{rate_color}]{rate}%[/{rate_color}]\n"
+        f"  [bold]Average Duration:[/bold] {avg_dur}s",
+        border_style="#8A2BE2",
+        title="[bold #FF1493]CI/CD Pipeline Health[/bold #FF1493]",
+        title_align="left"
+    ))
+    
+    # Table of Pipeline Runs
+    table = Table(title="[bold #FF69B4]Recent CI/CD Pipeline Runs[/bold #FF69B4]", border_style="#8A2BE2", title_style="bold")
+    table.add_column("Timestamp", style="dim", width=20)
+    table.add_column("Run ID", style="cyan", width=22)
+    table.add_column("Branch", style="magenta", width=12)
+    table.add_column("Commit", style="dim", width=10)
+    table.add_column("Status", width=10)
+    table.add_column("Pass / Fail", width=12)
+    table.add_column("Duration", style="yellow", width=10)
+    
+    for r in pipeline.get("runs", []):
+        status_str = "[bold green]PASSED[/bold green]" if r["status"] == "PASS" else "[bold red]FAILED[/bold red]"
+        pass_fail = f"[green]{r['pass_count']}[/green] / [red]{r['fail_count']}[/red]"
+        table.add_row(
+            r["timestamp"][:19].replace("T", " "),
+            r["run_id"],
+            r["branch"] or "N/A",
+            r["commit"] or "N/A",
+            status_str,
+            pass_fail,
+            f"{r['duration']:.2f}s"
+        )
+        
+    console.print(table)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.progress import (
     Progress, BarColumn, TextColumn,
-    TimeElapsedColumn, SpinnerColumn, TaskProgressColumn
+    TimeElapsedColumn, TaskProgressColumn
 )
 from rich.align import Align
 from rich.columns import Columns
@@ -102,7 +102,7 @@ def print_init_spinners(skip: bool = False, version: str = "", init_steps=None):
 
     console.print()
     badge = Text()
-    badge.append("  ⚡  SYSTEM READY  ⚡  ", style=f"bold {HOT_PINK} on {DIM_PURPLE}")
+    badge.append("  SYSTEM READY  ", style=f"bold {HOT_PINK} on {DIM_PURPLE}")
     console.print(Align.center(badge))
     console.print()
     time.sleep(0.5)
@@ -136,10 +136,9 @@ def print_config_panel(workspace, models, loc, exec_mode, out_format, risk_thres
 
 def get_progress_bar():
     return Progress(
-        SpinnerColumn(spinner_name="dots", style=f"bold {HOT_PINK}"),
         TextColumn(f"[bold {MAGENTA}][progress.description]{{task.description}}[/]"),
         BarColumn(
-            bar_width=38,
+            bar_width=32,
             style=DEEP_PURPLE,
             complete_style=HOT_PINK,
             finished_style=MAGENTA,
@@ -150,7 +149,11 @@ def get_progress_bar():
         TextColumn("{task.fields[filename]}", style=f"dim {ORCHID}"),
         TimeElapsedColumn(),
         console=console,
-        transient=False,
+        expand=True,
+        transient=True,
+        refresh_per_second=8,
+        redirect_stdout=True,
+        redirect_stderr=True,
     )
 
 def print_section_rule(text: str):
@@ -275,7 +278,7 @@ class ThinkingPanel:
 
         return Panel(
             Text.from_markup(f"[dim {ORCHID}]{display}[/dim {ORCHID}]") if display else Text("waiting for tokens...", style=f"dim {ORCHID}"),
-            title=Text(f"  🧠  {self._label}  ", style=f"bold {HOT_PINK}"),
+            title=Text(f"  {self._label}  ", style=f"bold {HOT_PINK}"),
             border_style=f"dim {PURPLE}",
             padding=(0, 2),
             width=min(console.width, 100),
@@ -294,7 +297,7 @@ class ThinkingPanel:
         char_count = len(self._text)
         line_count = self._text.count("\n") + 1
         t = Text()
-        t.append("  🧠  ", style=f"bold {HOT_PINK}")
+        t.append("  ", style=f"bold {HOT_PINK}")
         t.append(f"Reasoning complete ", style=f"{ORCHID}")
         t.append(f"({line_count} lines, {char_count} chars)", style=f"dim {PURPLE}")
         console.print(t)

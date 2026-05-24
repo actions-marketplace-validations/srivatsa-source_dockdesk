@@ -1,4 +1,4 @@
-import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle, AlertTriangle, Users, Link2 } from 'lucide-react'
+import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle, AlertTriangle, Users, Link2, Workflow } from 'lucide-react'
 
 const NAV_SECTIONS = [
   {
@@ -15,6 +15,7 @@ const NAV_SECTIONS = [
     items: [
       { id: 'accountability', icon: Users, label: 'Accountability' },
       { id: 'audit-trail', icon: Link2, label: 'Audit Trail' },
+      { id: 'pipeline', icon: Workflow, label: 'CI/CD Pipeline' },
       { id: 'timeline', icon: Activity, label: 'Timeline' },
       { id: 'anomalies', icon: AlertTriangle, label: 'Anomalies' },
     ],

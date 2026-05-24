@@ -558,12 +558,26 @@ IMPORTANT:
                 "draft_fix": "",
             }
         else:
-            response = chain.invoke({
-                "file_path": os.path.basename(file_path),
-                "code_content": code_trimmed,
-                "docs_text": effective_docs
-            })
-            result = parse_llm_json(response.content)
+            try:
+                response = chain.invoke({
+                    "file_path": os.path.basename(file_path),
+                    "code_content": code_trimmed,
+                    "docs_text": effective_docs
+                })
+                result = parse_llm_json(response.content)
+            except Exception as e:
+                # OLLAMA / LOCAL LLM CALL FAILED! Fall back to GitHub/Local Heuristic Lens!
+                console.print(f"[bold yellow][!] Local LLM inference failed for {os.path.basename(file_path)}: {e}[/bold yellow]")
+                console.print(f"[yellow]    └─ Falling back to GitHub/Local Heuristic Lens...[/yellow]")
+                
+                from .github_lens import identify_problems
+                result = identify_problems(
+                    file_path=file_path,
+                    workspace=workspace,
+                    code_content=code_content,
+                    docs_text=docs_text
+                )
+                selected_model = result.get("code_model", "Local Heuristic Lens")
 
             # Safety net: if LLM still returned FAIL for no-docs, override to SKIP
             if effective_docs == "(no docs found)" and result.get("status") == "FAIL":
@@ -817,6 +831,20 @@ def reasoning_node(state: AuditState) -> AuditState:
     def _reason_single(finding: dict) -> dict:
         start_time = time.time()
         file_path = str(finding.get("file", "unknown"))
+
+        if finding.get("code_model") in ("GitHub Lens", "Local Heuristic Lens"):
+            return {
+                "file": file_path,
+                "status": finding.get("status", "FAIL"),
+                "risk": finding.get("risk", "HIGH"),
+                "summary": finding.get("summary", ""),
+                "fix": finding.get("fix") or finding.get("draft_fix") or "",
+                "safe_to_push": finding.get("safe_to_push", False),
+                "reasoning": "Audited using the unbreakable fallback search mechanism.",
+                "code_model": finding.get("code_model"),
+                "reasoning_model": finding.get("reasoning_model"),
+                "duration_ms": finding.get("duration_ms", 0) + int((time.time() - start_time) * 1000),
+            }
 
         # Safely extract all fields - handle dict/list/None/any type
         status = _safe_str(finding.get("status", "UNKNOWN"), 50)
@@ -1147,7 +1175,7 @@ def reporting_node(state: AuditState) -> AuditState:
     import subprocess
     import re
 
-    error_tree = Tree("[bold cyan]🚨 Semantic Drift Error Trajectories[/bold cyan]")
+    error_tree = Tree("[bold cyan]Semantic Drift Error Trajectories[/bold cyan]")
     has_errors = False
 
     for res in results:
@@ -1192,17 +1220,17 @@ def reporting_node(state: AuditState) -> AuditState:
 **Code Agent:** {code_model_display}  
 **Reasoning Agent:** {reasoning_display}  
 **Files Audited:** {len(results)}  
-**Status:** ✅ {pass_count} Pass | ❌ {fail_count} Fail |  {error_count} Error
+**Status:** {pass_count} Pass | {fail_count} Fail | {error_count} Error
 
 ## Risk Distribution
 | Level | Count |
 |-------|-------|
-| 🔴 HIGH | {high_risk} |
-| 🟡 MEDIUM | {medium_risk} |
-| 🟢 LOW | {low_risk} |
+| HIGH | {high_risk} |
+| MEDIUM | {medium_risk} |
+| LOW | {low_risk} |
 
 ## Push Safety
-| ✅ Safe to Push | ❌ Unsafe | 
+| Safe to Push | Unsafe | 
 |----------------|----------|
 | {safe_count} | {unsafe_count} |
 
@@ -1216,11 +1244,11 @@ def reporting_node(state: AuditState) -> AuditState:
     
     for res in results:
         status = res.get("status", "UNKNOWN")
-        icon = {"PASS": "✅", "FAIL": "❌"}.get(status, "")
+        icon = {"PASS": "PASS", "FAIL": "FAIL"}.get(status, "")
         risk = res.get("risk", "UNKNOWN")
-        risk_badge = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(risk, "⚪")
+        risk_badge = {"HIGH": "HIGH", "MEDIUM": "MEDIUM", "LOW": "LOW"}.get(risk, "UNKNOWN")
         safe = res.get("safe_to_push", None)
-        safe_badge = "✅ Safe" if safe is True else "❌ Unsafe" if safe is False else "❓ Unknown"
+        safe_badge = "Safe" if safe is True else "Unsafe" if safe is False else "Unknown"
         
         file_path = res.get("file", "unknown")
         try:
@@ -1234,10 +1262,10 @@ def reporting_node(state: AuditState) -> AuditState:
         report += f"**Summary:** {res.get('summary', 'No summary')}\n\n"
         
         if res.get("reasoning"):
-            report += f"<details>\n<summary>🧠 DeepSeek Reasoning</summary>\n\n{res.get('reasoning')}\n\n</details>\n\n"
+            report += f"<details>\n<summary>DeepSeek Reasoning</summary>\n\n{res.get('reasoning')}\n\n</details>\n\n"
         
         if res.get("fix"):
-            report += f"<details>\n<summary>📝 Proposed Fix</summary>\n\n```markdown\n{res.get('fix')}\n```\n\n</details>\n\n"
+            report += f"<details>\n<summary>Proposed Fix</summary>\n\n```markdown\n{res.get('fix')}\n```\n\n</details>\n\n"
         
         report += "---\n\n"
     

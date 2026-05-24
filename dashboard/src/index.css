@@ -7,38 +7,39 @@
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color-scheme: dark;
-  --purple: #8A2BE2;
-  --hot-pink: #FF1493;
-  --orchid: #DA70D6;
-  --magenta: #FF00FF;
-  --cyan: #00FFFF;
-  --gold: #FFD700;
-  --bg: #0B0B1A;
-  --surface: #13132B;
+  --purple: #8A8A8A;
+  --hot-pink: #C0C0C0;
+  --orchid: #B0B0B0;
+  --magenta: #D0D0D0;
+  --cyan: #A8A8A8;
+  --gold: #E0E0E0;
+  --bg: #080808;
+  --surface: #111111;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
   background-color: var(--bg);
-  color: #e2e8f0;
+  color: #f3f3f3;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  filter: grayscale(1) contrast(1.05);
 }
 
-/* ── Custom Scrollbar (purple theme) ── */
+/* ── Custom Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(138, 43, 226, 0.3); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(138, 43, 226, 0.5); }
+::-webkit-scrollbar-thumb { background: rgba(180, 180, 180, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(220, 220, 220, 0.45); }
 
-/* ── Glassmorphism Card ── */
+/* ── Card Surface ── */
 .glass-card {
-  background: rgba(19, 19, 43, 0.6);
+  background: rgba(18, 18, 18, 0.88);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(138, 43, 226, 0.15);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .glass-card-hover {
@@ -46,16 +47,19 @@ body {
 }
 .glass-card-hover:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(138, 43, 226, 0.2), 0 4px 10px rgba(0, 0, 0, 0.3);
-  border-color: rgba(138, 43, 226, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
-/* ── Neon Glow Effects ── */
-.glow-purple { box-shadow: 0 0 20px rgba(138, 43, 226, 0.3), 0 0 60px rgba(138, 43, 226, 0.1); }
-.glow-pink { box-shadow: 0 0 20px rgba(255, 20, 147, 0.3), 0 0 60px rgba(255, 20, 147, 0.1); }
-.glow-cyan { box-shadow: 0 0 15px rgba(0, 255, 255, 0.25), 0 0 40px rgba(0, 255, 255, 0.08); }
+.glow-purple,
+.glow-pink,
+.glow-cyan,
+.glow-breathe {
+  box-shadow: none !important;
+  animation: none !important;
+}
 
-/* ── Gradient Border ── */
+/* ── Border Accent ── */
 .gradient-border {
   position: relative;
 }
@@ -65,7 +69,7 @@ body {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(138,43,226,0.4), rgba(255,20,147,0.4), rgba(0,255,255,0.2));
+  background: linear-gradient(135deg, rgba(255,255,255,0.24), rgba(255,255,255,0.08));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -80,16 +84,7 @@ body {
 }
 .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
 
-@keyframes glow-breathe {
-  0%, 100% { box-shadow: 0 0 10px rgba(138, 43, 226, 0.2); }
-  50% { box-shadow: 0 0 25px rgba(138, 43, 226, 0.4), 0 0 50px rgba(255, 20, 147, 0.15); }
-}
-.glow-breathe { animation: glow-breathe 3s ease-in-out infinite; }
-
-@keyframes neon-flicker {
-  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { text-shadow: 0 0 7px rgba(138, 43, 226, 0.6), 0 0 20px rgba(138, 43, 226, 0.3); }
-  20%, 24%, 55% { text-shadow: none; }
-}
+@keyframes neon-flicker { 0%, 100% { text-shadow: none; } }
 
 /* ── Tree View Animations ── */
 @keyframes slideDown {
@@ -106,14 +101,14 @@ body {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(to bottom, rgba(138, 43, 226, 0.3) 0%, rgba(138, 43, 226, 0.05) 100%);
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.04) 100%);
 }
-.tree-branch button:hover { background: rgba(138, 43, 226, 0.08); }
+.tree-branch button:hover { background: rgba(255, 255, 255, 0.06); }
 
 /* ── Active sidebar indicator ── */
 .sidebar-active {
   position: relative;
-  background: rgba(138, 43, 226, 0.12);
+  background: rgba(255, 255, 255, 0.08);
 }
 .sidebar-active::before {
   content: '';
@@ -123,14 +118,14 @@ body {
   bottom: 4px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, #8A2BE2, #FF1493);
-  box-shadow: 0 0 8px rgba(138, 43, 226, 0.5);
+  background: linear-gradient(180deg, #D6D6D6, #8C8C8C);
+  box-shadow: none;
 }
 
-/* ── Risk badge glow ── */
-.risk-high { color: #FF1493; text-shadow: 0 0 8px rgba(255, 20, 147, 0.4); }
-.risk-medium { color: #FFD700; text-shadow: 0 0 8px rgba(255, 215, 0, 0.3); }
-.risk-low { color: #00FFFF; text-shadow: 0 0 8px rgba(0, 255, 255, 0.3); }
+/* ── Risk badges ── */
+.risk-high { color: #F2F2F2; text-shadow: none; }
+.risk-medium { color: #D0D0D0; text-shadow: none; }
+.risk-low { color: #B0B0B0; text-shadow: none; }
 
 /* ── Print / PDF Export ── */
 @media print {

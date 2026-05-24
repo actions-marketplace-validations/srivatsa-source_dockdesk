@@ -168,25 +168,25 @@ class DiscordNotifier:
             })
 
         status_icon = {
-            "PASS": "✅",
-            "FAIL": "❌",
+            "PASS": "PASS",
+            "FAIL": "FAIL",
             "ERROR": "",
-            "SKIP": "➖",
-            "UNKNOWN": "❔",
+            "SKIP": "SKIP",
+            "UNKNOWN": "UNKNOWN",
         }
         risk_icon = {
-            "HIGH": "🔴",
-            "MEDIUM": "🟡",
-            "LOW": "🟢",
-            "UNKNOWN": "⚪",
+            "HIGH": "HIGH",
+            "MEDIUM": "MEDIUM",
+            "LOW": "LOW",
+            "UNKNOWN": "UNKNOWN",
         }
 
         lines: List[str] = []
         for directory in sorted(tree.keys()):
-            lines.append(f"📁 `{directory}`")
+            lines.append(f"{directory}")
             files = sorted(tree[directory], key=lambda f: (f["status"], f["name"]))
             for f in files:
-                s = status_icon.get(f["status"], "❔")
+                s = status_icon.get(f["status"], "UNKNOWN")
                 rk = risk_icon.get(f["risk"], "⚪")
                 lines.append(f"  └ {s} {rk} `{f['name']}`")
                 if len(lines) >= max_lines:
@@ -202,7 +202,7 @@ class DiscordNotifier:
             body = body[: self.MAX_EMBED_DESC - 20] + "\n... (truncated)"
 
         embed: Dict[str, Any] = {
-            "title": "🌲 DockDesk Tree Summary",
+            "title": "DockDesk Tree Summary",
             "color": 0x5865F2,
             "description": body,
             "footer": {"text": "DockDesk Discord Tree View"},
@@ -221,14 +221,14 @@ class DiscordNotifier:
         self.webhook_url = target_url
         try:
             embed: Dict[str, Any] = {
-                "title": " DockDesk Test Ping",
+                "title": "DockDesk Test Ping",
                 "color": 0x57F287,
                 "description": "Discord webhook is configured and reachable.",
                 "fields": [
-                    {"name": "Status", "value": "✅ Connected", "inline": True},
+                    {"name": "Status", "value": "Connected", "inline": True},
                     {"name": "Source", "value": "DockDesk dashboard/CLI", "inline": True},
                 ],
-                "footer": {"text": "DockDesk Neural Auditor"},
+                "footer": {"text": "DockDesk Auditor"},
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }
             return self._send({"embeds": [embed]})

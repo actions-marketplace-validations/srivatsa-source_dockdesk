@@ -14,6 +14,7 @@ import DiscordPanel from './components/DiscordPanel'
 import AnomaliesPanel from './components/AnomaliesPanel'
 import AccountabilityPanel from './components/AccountabilityPanel'
 import AuditTrailPanel from './components/AuditTrailPanel'
+import PipelinePanel from './components/PipelinePanel'
 import { RefreshCw, WifiOff, Download, FileSpreadsheet, Shield } from 'lucide-react'
 
 const pageTransition = {
@@ -124,6 +125,8 @@ function App() {
         return <AccountabilityPanel accountability={accountability || {}} files={latest_run_files || []} />
       case 'audit-trail':
         return <AuditTrailPanel chainLink={audit_chain_link || {}} metrics={orchestration_metrics || {}} />
+      case 'pipeline':
+        return <PipelinePanel pipeline={data.pipeline_monitoring || {}} />
       case 'models':
         return (
           <ModelUsage
@@ -180,6 +183,7 @@ function App() {
     anomalies: 'Anomalies',
     accountability: 'Accountability',
     'audit-trail': 'Audit Trail',
+    pipeline: 'CI/CD Pipeline',
     models: 'Models',
     runs: 'Recent Runs',
     reports: 'Export Reports',

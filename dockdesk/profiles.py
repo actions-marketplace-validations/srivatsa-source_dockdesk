@@ -236,7 +236,7 @@ def print_profile_list() -> None:
     table.add_column("Description", style=f"{HOT_PINK}")
 
     for p in profiles:
-        source_badge = "⚡ built-in" if p["source"] == "built-in" else "👤 user"
+        source_badge = "built-in" if p["source"] == "built-in" else "user"
         table.add_row(p["name"], source_badge, p["description"])
 
     console.print(table)

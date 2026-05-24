@@ -53,12 +53,12 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 | Feature | Description |
 |---------|-------------|
-| **🧠 Natural-Language CLI** | Running `dockdesk` with no args now opens a chat-style command interface for audit, dashboard, and workspace actions |
-| **🎯 Target Picker** | Audit prompts now accept either a file or folder target, with folder browsing as a fallback |
-| **📦 Profiles + Completion** | Built-in profile management and shell completion setup via `dockdesk profile` and `dockdesk completion` |
-| **🧭 Launcher Commands** | Open the React dashboard, start the Rich TUI, or run the Discord bot from the CLI |
-| **🎲 Model Rotation** | `--rotate-models` round-robins local audit-suitable models per file |
-| **📄 Export Upgrades** | Dashboard exports now include quick Excel, CSV, and print-friendly PDF output |
+| Natural-Language CLI | Running `dockdesk` with no args now opens a chat-style command interface for audit, dashboard, and workspace actions |
+| Target Picker | Audit prompts now accept either a file or folder target, with folder browsing as a fallback |
+| Profiles + Completion | Built-in profile management and shell completion setup via `dockdesk profile` and `dockdesk completion` |
+| Launcher Commands | Open the React dashboard, start the Rich TUI, or run the Discord bot from the CLI |
+| Model Rotation | `--rotate-models` round-robins local audit-suitable models per file |
+| Export Upgrades | Dashboard exports now include quick Excel, CSV, and print-friendly PDF output |
 
 ## What's New in v3.0.1
 
@@ -76,23 +76,23 @@ Changelog (patch release):
 | Feature | Description |
 |---------|-------------|
 | **📏 Custom Rule Engine** | `--rules` flag injects team-specific audit rules into LLM prompts |
-| **🎯 Benchmark Suite** | Golden-set test fixtures with precision/recall/F1 scoring (100% / 71% / 83%) |
-| **🎨 CLI UI Refresh** | Cyan-themed banner, color-coded results table, verdict panel (CLEAN/REVIEW/UNSAFE) |
-| **🔍 Force Full Scan** | `--force-full-scan` bypasses git/merkle diff to audit ALL files |
+| Benchmark Suite | Golden-set test fixtures with precision/recall/F1 scoring (100% / 71% / 83%) |
+| CLI UI Refresh | Cyan-themed banner, color-coded results table, verdict panel (CLEAN/REVIEW/UNSAFE) |
+| Force Full Scan | `--force-full-scan` bypasses git/merkle diff to audit ALL files |
 | **🐞 Workspace Scoping Fix** | Git diff now correctly scopes to subdirectories |
-| **📄 SARIF Output** | `--format sarif` for IDE integration + GitHub Code Scanning |
-| **📑 PDF Export** | Dashboard "Export PDF" button via print CSS |
+| SARIF Output | `--format sarif` for IDE integration + GitHub Code Scanning |
+| PDF Export | Dashboard "Export PDF" button via print CSS |
 | **🌳 AST-Aware RAG** | Language-specific code splitting for 20+ file types |
 
 ### Previous (v2.2)
 
 | Feature | Description |
 |---------|-------------|
-| **🧠 7B Default Model** | Upgraded from 3B to `qwen2.5-coder:7b` for dramatically better accuracy |
-| **⏭️ SKIP Status** | Undocumented files are now SKIPped instead of false-FAILed |
-| **🎯 Smarter Pipeline** | Rewritten prompts, reasoning overrides, and parse fallbacks eliminate false positives |
-| **🎨 n8n-Style Dashboard** | Modern dark-theme dashboard with collapsible sidebar |
-| **⚡ Composite Action** | 10x faster GitHub Action — no Docker build (~30s vs ~4min) |
+| 7B Default Model | Upgraded from 3B to `qwen2.5-coder:7b` for dramatically better accuracy |
+| SKIP Status | Undocumented files are now SKIPped instead of false-FAILed |
+| Smarter Pipeline | Rewritten prompts, reasoning overrides, and parse fallbacks eliminate false positives |
+| n8n-Style Dashboard | Modern dark-theme dashboard with collapsible sidebar |
+| Composite Action | 10x faster GitHub Action — no Docker build (~30s vs ~4min) |
 | **Model Freedom** | Choose any Ollama model with LOC-based auto-tuning |
 | **One-Click Fixes** | Auto-apply documentation fixes with `--fix` |
 | **SARIF Output** | IDE integration for VS Code |
@@ -114,7 +114,7 @@ flowchart LR
         PIP --> SETUP
     end
 
-    subgraph INPUT["📂 &nbsp; Input"]
+    subgraph INPUT["Input"]
         direction TB
         LOCAL["Local path"]
         GITURL["Git URL"]
@@ -125,12 +125,12 @@ flowchart LR
     subgraph PIPELINE["⚙️ &nbsp; Audit Pipeline"]
         direction TB
 
-        DISCOVER["🔍 Discovery<br/><i>files · .gitignore · git-diff</i>"]
-        MERKLE["🔐 Integrity<br/><i>Merkle tree / diff / force-full-scan</i>"]
-        RAG["📚 RAG Context<br/><i>AST-aware splitting · ChromaDB</i>"]
-        CODE["🧠 Code Analysis<br/><i>Qwen Coder SLM</i>"]
-        REASON["💡 Reasoning<br/><i>DeepSeek-R1</i>"]
-        REPORT["📊 Report"]
+        DISCOVER["Discovery<br/><i>files · .gitignore · git-diff</i>"]
+        MERKLE["Integrity<br/><i>Merkle tree / diff / force-full-scan</i>"]
+        RAG["RAG Context<br/><i>AST-aware splitting · ChromaDB</i>"]
+        CODE["Code Analysis<br/><i>Qwen Coder SLM</i>"]
+        REASON["Reasoning<br/><i>DeepSeek-R1</i>"]
+        REPORT["Report"]
 
         DISCOVER --> MERKLE --> RAG --> CODE --> REASON --> REPORT
     end
@@ -147,12 +147,12 @@ flowchart LR
 
     subgraph OUTPUT["📤 &nbsp; Output"]
         direction TB
-        MD["📝 Markdown"]
-        SARIF["🔧 SARIF"]
+        MD["Markdown"]
+        SARIF["SARIF"]
         JSON["📋 JSON"]
         FIX["✏️ Auto-Fixes"]
-        DASH["📈 Dashboard"]
-        PDF["📑 PDF Export"]
+        DASH["Dashboard"]
+        PDF["PDF Export"]
     end
 
     REPORT --> MD & SARIF & JSON & FIX & DASH & PDF
@@ -436,7 +436,7 @@ Available slash commands after startup:
 
 ## GitHub Actions Integration
 
-> ⚡ **v2.1 uses a Composite Action** - No Docker build means ~30 second execution!
+> **v2.1 uses a Composite Action** - No Docker build means ~30 second execution!
 
 ### Basic Setup
 
