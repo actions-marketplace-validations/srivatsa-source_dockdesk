@@ -37,6 +37,48 @@ _plugin_mgr = None
 _current_workspace = None
 
 
+def _get_file_git_diff(file_path: str, workspace: str) -> Optional[str]:
+    """Extract only the unstaged/staged or branch diff for a target file."""
+    try:
+        import os
+        from git import Repo
+        repo = Repo(workspace, search_parent_directories=True)
+        if repo.bare:
+            return None
+        repo_root = os.path.abspath(repo.working_tree_dir or workspace)
+        rel_path = os.path.relpath(os.path.abspath(file_path), repo_root)
+        
+        candidates = []
+        base_ref = os.environ.get("GITHUB_BASE_REF")
+        if base_ref:
+            candidates.append(f"origin/{base_ref}")
+        candidates.extend(["origin/main", "origin/master", "main", "master"])
+        
+        diff_text = None
+        for target in candidates:
+            try:
+                diff_text = repo.git.diff(f"{target}..HEAD", "--", rel_path)
+                if diff_text.strip():
+                    break
+            except Exception:
+                continue
+                
+        if not diff_text or not diff_text.strip():
+            try:
+                diff_text = repo.git.diff("HEAD", "--", rel_path)
+            except Exception:
+                pass
+            if not diff_text or not diff_text.strip():
+                try:
+                    diff_text = repo.git.diff("--", rel_path)
+                except Exception:
+                    pass
+                    
+        return diff_text if diff_text and diff_text.strip() else None
+    except Exception:
+        return None
+
+
 def _init_infrastructure(workspace: str, config=None):
     """Initialize cache + OllamaPool. Re-initializes if workspace changes.
 
@@ -523,8 +565,12 @@ def code_analysis_node(state: AuditState) -> AuditState:
         docs_subset = _precomputed_docs.get(file_path, [])
         docs_text = "\n".join([f"[{d['path']}]: {d['content'][:500]}" for d in docs_subset])
 
-        # Truncate code to fit context window - keep first 2000 chars
-        code_trimmed = code_content[:2000]
+        # Truncate code to fit context window - prioritize git diff of changed lines
+        diff_content = _get_file_git_diff(file_path, workspace)
+        if diff_content:
+            code_trimmed = f"--- GIT DIFF ---\n{diff_content[:3000]}\n----------------\n\n--- TRIMMED FULL CODE ---\n{code_content[:1500]}"
+        else:
+            code_trimmed = code_content[:2000]
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a code-vs-documentation drift detector.

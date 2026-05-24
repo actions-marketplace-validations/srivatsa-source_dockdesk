@@ -177,53 +177,167 @@ def _render_project_table(projects: list[tuple[Path, str]], base_dir: Path) -> N
 
 
 def _browse_for_workspace(start_dir: Path, *, enter_on_select: bool = True) -> Path | None:
-    """Simple folder picker that works in plain terminals."""
+    """Phenomenal interactive folder browser using Rich Live and keyboard navigation."""
+    from rich.live import Live
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+    import time
+    
     current = start_dir.resolve()
+    selected_idx = 0
+    
+    # ── Cross-Platform Non-Blocking Key Reader ──
+    if os.name == "nt":
+        import msvcrt
+        def read_key() -> str:
+            if msvcrt.kbhit():
+                ch = msvcrt.getch()
+                if ch in (b'\x00', b'\xe0'):
+                    ch2 = msvcrt.getch()
+                    if ch2 == b'H': return 'up'
+                    if ch2 == b'P': return 'down'
+                    return ''
+                if ch == b'\r': return 'enter'
+                if ch == b'\n': return 'shift-enter'  # Shift+Enter registers as \n in Windows consoles
+                if ch == b'\x1b': return 'esc'
+                try:
+                    c = ch.decode('utf-8', errors='ignore')
+                except Exception:
+                    return ''
+                return c
+            return ''
+    else:
+        import tty, termios, select
+        _old_settings = None
+        def _init_tty():
+            nonlocal _old_settings
+            _old_settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+        def _restore_tty():
+            if _old_settings:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _old_settings)
 
-    while True:
-        console.print(Panel(
-            f"[bold #DA70D6]Folder Browser[/bold #DA70D6]\n"
-            f"[white]Current:[/white] [#FF69B4]{current}[/#FF69B4]\n"
-            "[dim]Type a number to enter folder, '..' for parent, '.' to select this folder, 'q' to cancel.[/dim]",
-            border_style="#8A2BE2"
-        ))
+        def read_key() -> str:
+            if select.select([sys.stdin], [], [], 0.05)[0]:
+                ch = sys.stdin.read(1)
+                if ch == '\x1b':
+                    if select.select([sys.stdin], [], [], 0.02)[0]:
+                        ch2 = sys.stdin.read(1)
+                        if ch2 == '[':
+                            ch3 = sys.stdin.read(1)
+                            if ch3 == 'A': return 'up'
+                            if ch3 == 'B': return 'down'
+                    return 'esc'
+                if ch in ('\r', '\n'):
+                    return 'enter'
+                return ch
+            return ''
 
+    if os.name != "nt":
+        _init_tty()
+
+    try:
         dirs: list[Path] = []
-        try:
-            dirs = sorted(
-                [p for p in current.iterdir() if p.is_dir() and not p.name.startswith(".")],
-                key=lambda p: p.name.lower()
+        
+        def refresh_dirs():
+            nonlocal dirs, selected_idx
+            try:
+                all_entries = sorted(
+                    [p for p in current.iterdir() if not p.name.startswith(".")],
+                    key=lambda p: (not p.is_dir(), p.name.lower())
+                )
+                dirs = all_entries
+            except (PermissionError, OSError):
+                dirs = []
+            selected_idx = min(selected_idx, max(0, len(dirs)))
+
+        refresh_dirs()
+
+        def make_panel() -> Panel:
+            table = Table(box=None, show_header=False, expand=True)
+            table.add_column("Pointer", width=2, style="bold #FF1493")
+            table.add_column("Type", width=8)
+            table.add_column("Name", style="#FF69B4")
+
+            parent_selected = (selected_idx == 0)
+            ptr = "▸" if parent_selected else " "
+            p_style = "bold #FF1493" if parent_selected else "dim"
+            row_style = "on #13132B" if parent_selected else ""
+            table.add_row(
+                Text(ptr, style=p_style),
+                Text("[DIR]", style="bold #8A2BE2"),
+                Text(".. (parent folder)", style="bold #DA70D6" if parent_selected else "#DA70D6"),
+                style=row_style
             )
-        except (PermissionError, OSError):
-            console.print("[bold red][-] Cannot read this folder.[/bold red]")
 
-        if not dirs:
-            console.print("[yellow][*] No visible subfolders here.[/yellow]")
-        else:
-            max_show = min(len(dirs), 25)
-            for idx in range(max_show):
-                console.print(f"[#DA70D6]{idx + 1:>2}[/#DA70D6]  [#FF69B4]{dirs[idx].name}[/#FF69B4]")
-            if len(dirs) > max_show:
-                console.print(f"[dim]... and {len(dirs) - max_show} more[/dim]")
+            for i, p in enumerate(dirs):
+                idx = i + 1
+                is_selected = (selected_idx == idx)
+                ptr = "▸" if is_selected else " "
+                p_style = "bold #FF1493" if is_selected else "dim"
+                row_style = "on #13132B" if is_selected else ""
+                
+                ptype = "[DIR]" if p.is_dir() else "[FILE]"
+                tstyle = "bold #8A2BE2" if p.is_dir() else "dim #DA70D6"
+                
+                table.add_row(
+                    Text(ptr, style=p_style),
+                    Text(ptype, style=tstyle),
+                    Text(p.name, style="bold #FF00FF" if is_selected else "#FF69B4"),
+                    style=row_style
+                )
 
-        choice = Prompt.ask("[#FF00FF]browse[/#FF00FF]").strip()
+            return Panel(
+                table,
+                title=Text(f" 📂 Folder & File Explorer ── {current} ", style="bold #FF1493"),
+                subtitle=Text(" [↑/↓/j/k]: Navigate  ∣  [Enter]: Open  ∣  [Shift+Enter / 's']: Start Audit  ∣  [q]: Cancel ", style="dim #DA70D6"),
+                border_style="#8A2BE2",
+                padding=(1, 2)
+            )
 
-        if choice.lower() == "q":
-            return None
-        if choice == ".":
-            return current
-        if choice == "..":
-            parent = current.parent
-            current = parent if parent != current else current
-            continue
-        if choice.isdigit():
-            idx = int(choice) - 1
-            if 0 <= idx < len(dirs):
-                if enter_on_select:
-                    current = dirs[idx]
+        with Live(make_panel(), screen=True, refresh_per_second=15) as live:
+            while True:
+                key = read_key()
+                if not key:
+                    time.sleep(0.02)
                     continue
-                return dirs[idx].resolve()
-        console.print("[yellow][!] Invalid choice.[/yellow]")
+
+                if key == 'q' or key == 'esc':
+                    return None
+                
+                elif key in ('j', 'down'):
+                    selected_idx = min(selected_idx + 1, len(dirs))
+                
+                elif key in ('k', 'up'):
+                    selected_idx = max(selected_idx - 1, 0)
+                
+                elif key in ('s', 'S', 'shift-enter'):
+                    if selected_idx == 0:
+                        return current
+                    else:
+                        return dirs[selected_idx - 1]
+
+                elif key == 'enter':
+                    if selected_idx == 0:
+                        current = current.parent
+                        selected_idx = 0
+                        refresh_dirs()
+                    else:
+                        target = dirs[selected_idx - 1]
+                        if target.is_dir():
+                            current = target
+                            selected_idx = 0
+                            refresh_dirs()
+                        else:
+                            return target
+                
+                live.update(make_panel())
+                time.sleep(0.01)
+
+    finally:
+        if os.name != "nt":
+            _restore_tty()
 
 
 def _chat_interface() -> None:
