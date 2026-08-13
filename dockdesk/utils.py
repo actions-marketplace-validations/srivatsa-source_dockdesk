@@ -47,11 +47,11 @@ class Visualizer:
         lines: List[str] = ["flowchart TD"]
 
         # ── Pipeline spine ──
-        lines.append("    DISCOVER[\"🔍 Discovery\"] --> INTEGRITY[\"🔐 Integrity Check\"]")
-        lines.append("    INTEGRITY --> RAG[\"📚 RAG Context\"]")
-        lines.append("    RAG --> CODE[\"🧠 Code Analysis<br/><i>Qwen Coder</i>\"]")
-        lines.append("    CODE --> REASON[\"💡 Reasoning<br/><i>DeepSeek-R1</i>\"]")
-        lines.append("    REASON --> REPORT[\"📊 Report\"]")
+        lines.append("    DISCOVER[\"Discovery\"] --> INTEGRITY[\"Integrity Check\"]")
+        lines.append("    INTEGRITY --> RAG[\"RAG Context\"]")
+        lines.append("    RAG --> CODE[\"Code Analysis<br/><i>Qwen Coder</i>\"]")
+        lines.append("    CODE --> REASON[\"Reasoning<br/><i>DeepSeek-R1</i>\"]")
+        lines.append("    REASON --> REPORT[\"Report\"]")
 
         # ── Pipeline node styles ──
         lines.append("    style DISCOVER fill:#0277bd,stroke:#01579b,color:#fff,rx:6")
@@ -62,7 +62,7 @@ class Visualizer:
         lines.append("    style REPORT fill:#00838f,stroke:#006064,color:#fff,rx:6")
 
         if not changes:
-            lines.append("    INTEGRITY -- No changes --> DONE[\"✅ Clean\"]")
+            lines.append("    INTEGRITY -- No changes --> DONE[\"Clean\"]")
             lines.append("    style DONE fill:#2e7d32,stroke:#1b5e20,color:#fff,rx:8")
             return "```mermaid\n" + "\n".join(lines) + "\n```"
 
@@ -77,7 +77,7 @@ class Visualizer:
             risk = risk_map.get(file, "UNKNOWN")
             # Short display name
             short = os.path.basename(file)
-            icon = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(risk, "⚪")
+            icon = {"HIGH": "HIGH", "MEDIUM": "MEDIUM", "LOW": "LOW"}.get(risk, "UNKNOWN")
             lines.append(f"    REPORT --> {node_id}[\"{icon} {short}<br/>{risk}\"]")
             fill, stroke = risk_colors.get(risk, ("#616161", "#424242"))
             lines.append(f"    style {node_id} fill:{fill},stroke:{stroke},color:#fff,rx:6")

@@ -1,74 +1,64 @@
-import { CheckCircle, XCircle, MinusCircle, ShieldCheck, ShieldAlert, FileCode } from 'lucide-react'
+﻿import { motion } from 'framer-motion'
+import { FileText, ChevronDown, ChevronUp, CheckCircle2, XCircle, AlertTriangle, Slash, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { useState } from 'react'
 
-const riskBadge = {
-  HIGH: 'bg-danger-muted text-danger',
-  MEDIUM: 'bg-warning-muted text-warning',
-  LOW: 'bg-success-muted text-success',
-}
+const riskStyle = { HIGH: 'risk-high', MEDIUM: 'risk-medium', LOW: 'risk-low' }
 
-export default function FileResults({ files }) {
+export default function FileResults({ files = [] }) {
+  const [expanded, setExpanded] = useState(null)
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'PASS': return <CheckCircle2 size={14} className="text-success" />
+      case 'FAIL': return <XCircle size={14} className="text-pink" />
+      case 'SKIP': return <Slash size={14} className="text-muted" />
+      case 'ERROR': return <AlertTriangle size={14} className="text-warning" />
+      default: return <CheckCircle2 size={14} className="text-success" />
+    }
+  }
+
+  if (files.length === 0) return null
+
   return (
-    <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
-      <div className="flex items-center space-x-2 mb-4">
-        <FileCode size={16} className="text-info" />
-        <h3 className="text-sm font-semibold text-white">File Results — Latest Run</h3>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-accent/10">
+        <h3 className="text-sm font-semibold text-white">File Results ({files.length})</h3>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-white/5 text-muted uppercase tracking-wider text-[10px]">
-              <th className="text-left py-2.5 pr-4">File</th>
-              <th className="text-center py-2.5 px-2">Status</th>
-              <th className="text-center py-2.5 px-2">Risk</th>
-              <th className="text-center py-2.5 px-2">Push</th>
-              <th className="text-right py-2.5 px-2">Time</th>
-              <th className="text-left py-2.5 pl-4">Summary</th>
-            </tr>
-          </thead>
-          <tbody>
-            {files.map((f, i) => (
-              <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors">
-                <td className="py-2.5 pr-4">
-                  <span className="text-white font-mono text-[11px]">
-                    {f.file.length > 35 ? '...' + f.file.slice(-32) : f.file}
-                  </span>
-                </td>
-                <td className="text-center py-2.5 px-2">
-                  {f.status === 'PASS' ? (
-                    <CheckCircle size={14} className="text-success mx-auto" />
-                  ) : f.status === 'FAIL' ? (
-                    <XCircle size={14} className="text-danger mx-auto" />
-                  ) : f.status === 'SKIP' ? (
-                    <MinusCircle size={14} className="text-muted mx-auto" />
-                  ) : (
-                    <span className="text-muted">{f.status || '?'}</span>
-                  )}
-                </td>
-                <td className="text-center py-2.5 px-2">
-                  <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${riskBadge[f.risk] || 'bg-surface-400 text-muted'}`}>
-                    {f.risk}
-                  </span>
-                </td>
-                <td className="text-center py-2.5 px-2">
-                  {f.safe_to_push ? (
-                    <ShieldCheck size={14} className="text-success mx-auto" />
-                  ) : (
-                    <ShieldAlert size={14} className="text-danger mx-auto" />
-                  )}
-                </td>
-                <td className="text-right py-2.5 px-2 text-muted font-mono">
-                  {(f.duration_ms / 1000).toFixed(1)}s
-                </td>
-                <td className="py-2.5 pl-4">
-                  <span className="text-muted line-clamp-1">
-                    {f.summary || '—'}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="divide-y divide-accent/5">
+        {files.map((f, i) => {
+          const isOpen = expanded === i
+          return (
+            <div key={i} className="hover:bg-accent/5 transition">
+              <button onClick={() => setExpanded(isOpen ? null : i)} className="w-full flex items-center justify-between px-5 py-3 text-left">
+                <div className="flex items-center space-x-3 min-w-0">
+                  <div className="flex-shrink-0 flex items-center justify-center">
+                    {getStatusIcon(f.status)}
+                  </div>
+                  <span className="text-sm text-white truncate">{f.file}</span>
+                  <span className={`text-[10px] font-bold uppercase ${riskStyle[f.risk] || 'text-muted'}`}>{f.risk}</span>
+                  {f.author && <span className="text-[10px] text-muted">by {f.author}</span>}
+                </div>
+                <div className="flex items-center space-x-3 flex-shrink-0">
+                  <div className={`flex items-center space-x-1 text-xs ${f.safe_to_push ? 'text-success' : 'text-pink'}`}>
+                    {f.safe_to_push ? <ShieldCheck size={12} /> : <ShieldAlert size={12} />}
+                    <span>{f.safe_to_push ? 'safe' : 'unsafe'}</span>
+                  </div>
+                  {isOpen ? <ChevronUp size={14} className="text-muted" /> : <ChevronDown size={14} className="text-muted" />}
+                </div>
+              </button>
+              {isOpen && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                  className="px-5 pb-4 text-xs text-muted border-t border-accent/5 pt-3 space-y-1">
+                  <p><span className="text-accent-light">Summary:</span> {f.summary || 'No summary'}</p>
+                  {f.code_model && <p><span className="text-accent-light">Model:</span> {f.code_model}</p>}
+                  {f.duration_ms > 0 && <p><span className="text-accent-light">Duration:</span> {(f.duration_ms / 1000).toFixed(1)}s</p>}
+                </motion.div>
+              )}
+            </div>
+          )
+        })}
       </div>
-    </div>
+    </motion.div>
   )
 }
+

@@ -1,5 +1,5 @@
 """
-DockDesk Setup — Interactive Ollama installation and model management.
+DockDesk Setup - Interactive Ollama installation and model management.
 
 Guides new users through:
   1. Detecting the OS
@@ -26,6 +26,7 @@ console = Console(highlight=False)
 # ── Recommended models ────────────────────────────────────────────────
 RECOMMENDED_MODELS: List[Tuple[str, str, str]] = [
     # (model_name, description, approx_size)
+    ("gemma:2b", "Intent routing model (optimized for 4GB VRAM)", "~1.6 GB"),
     ("qwen2.5-coder:7b", "Code audit model (recommended default)", "~4.5 GB"),
     ("deepseek-r1:1.5b", "Reasoning model for risk assessment", "~1 GB"),
 ]
@@ -202,7 +203,7 @@ def run_setup(
     console.print()
     console.print("[bold white][2/4] Checking Ollama …[/bold white]", end=" ")
     if _check_ollama_installed():
-        console.print("[green]Found ✓[/green]")
+        console.print("[green]Found [/green]")
     elif skip_install:
         console.print("[yellow]Not found (--skip-install)[/yellow]")
         console.print("      Install manually: [bold cyan]https://ollama.com[/bold cyan]")
@@ -212,7 +213,7 @@ def run_setup(
         if _prompt_yn("Install Ollama now?"):
             success = _install_ollama(os_name)
             if success:
-                console.print("      [green]Ollama installed ✓[/green]")
+                console.print("      [green]Ollama installed [/green]")
             else:
                 console.print("      [red]✗ Ollama not detected after install.[/red]")
                 console.print("      Please install manually and re-run [bold]dockdesk setup[/bold].")
@@ -226,14 +227,14 @@ def run_setup(
     console.print()
     console.print("[bold white][3/4] Checking Ollama service …[/bold white]", end=" ")
     if _check_ollama_running():
-        console.print("[green]Running ✓[/green]")
+        console.print("[green]Running [/green]")
     else:
         console.print("[yellow]Not running[/yellow]")
         console.print("      Starting ollama serve …")
         if _start_ollama_service(os_name):
-            console.print("      [green]Service started ✓[/green]")
+            console.print("      [green]Service started [/green]")
         else:
-            console.print("      [yellow]⚠ Could not auto-start Ollama.[/yellow]")
+            console.print("      [yellow] Could not auto-start Ollama.[/yellow]")
             console.print("      Run [bold cyan]ollama serve[/bold cyan] in another terminal, then re-run setup.")
             return
 
@@ -259,20 +260,20 @@ def run_setup(
         if already:
             label = f"{model_name}"
             if desc:
-                label += f" — {desc}"
-            console.print(f"      [green]✓[/green] {label} [dim](already installed)[/dim]")
+                label += f" - {desc}"
+            console.print(f"      [green][/green] {label} [dim](already installed)[/dim]")
             continue
 
         label = f"{model_name}"
         if desc:
-            label += f" — {desc}"
+            label += f" - {desc}"
         if size:
             label += f" [dim]({size})[/dim]"
 
         if _prompt_yn(f"Pull {label}?"):
             console.print(f"      Pulling {model_name} …")
             if _pull_model(model_name):
-                console.print(f"      [green]✓ {model_name} ready[/green]")
+                console.print(f"      [green] {model_name} ready[/green]")
                 pulled_any = True
             else:
                 console.print(f"      [red]✗ Failed to pull {model_name}[/red]")
@@ -283,7 +284,7 @@ def run_setup(
     # ── Done ──────────────────────────────────────────────────────────
     console.print()
     console.print(Panel.fit(
-        "[bold green]✓ Setup complete![/bold green]\n\n"
+        "[bold green] Setup complete![/bold green]\n\n"
         "Run your first audit:\n"
         "  [bold cyan]dockdesk audit --workspace /path/to/project[/bold cyan]\n\n"
         "Or initialize a config file:\n"

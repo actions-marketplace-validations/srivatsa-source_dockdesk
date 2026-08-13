@@ -26,6 +26,13 @@ class AuditState(TypedDict):
     audit_results: List[Dict]     # Final results after DeepSeek reasoning (Phase 2)
     fix_results: Optional[List[Any]]  # FixResult instances
     
+    # Metadata
+    run_id: str                   # Unique identifier for this execution
+    
+    # Accountability (USP)
+    accountability_data: Optional[Dict[str, Any]]  # Per-developer drift tracking
+    audit_chain_link: Optional[Dict[str, Any]]      # Tamper-evident audit trail link
+    
     # Outputs
     report_path: str
     mermaid_graph: str
@@ -35,3 +42,6 @@ class AuditState(TypedDict):
     
     # Metadata
     run_metadata: Optional[Dict]
+    
+    # Orchestration and metrics
+    orchestration_metrics: Optional[Dict[str, Any]]

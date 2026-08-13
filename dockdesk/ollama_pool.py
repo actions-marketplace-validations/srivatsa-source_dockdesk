@@ -1,5 +1,5 @@
 """
-OllamaPool — Distributed Ollama inference across multiple endpoints.
+OllamaPool - Distributed Ollama inference across multiple endpoints.
 
 Supports round-robin load distribution across N Ollama instances.
 Falls back to single localhost if no URLs configured.
@@ -69,7 +69,7 @@ class OllamaPool:
 
     def health_check(self) -> List[str]:
         """
-        Quick health check — ping each endpoint.
+        Quick health check - ping each endpoint.
         Returns list of healthy URLs.
         """
         import requests
@@ -80,7 +80,7 @@ class OllamaPool:
                 if resp.status_code == 200:
                     healthy.append(url)
             except Exception:
-                console.print(f"[yellow]⚠ Ollama endpoint unreachable: {url}[/yellow]")
+                console.print(f"[yellow] Ollama endpoint unreachable: {url}[/yellow]")
         self._healthy = healthy if healthy else self._urls  # fallback to all if none responded
         # Rebuild cycle with only healthy endpoints
         self._cycle = itertools.cycle(self._healthy)
@@ -96,7 +96,7 @@ class OllamaPool:
     ) -> ChatOllama:
         """
         Get a ChatOllama instance pointed at the next available endpoint.
-        Thread-safe — can be called from multiple workers simultaneously.
+        Thread-safe - can be called from multiple workers simultaneously.
         Instances are cached by (url, model, num_predict, num_ctx) to avoid
         HTTP client re-creation overhead (~100-300ms per new instance).
         """

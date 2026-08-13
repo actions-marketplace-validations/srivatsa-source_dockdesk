@@ -1,76 +1,41 @@
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
+import { motion } from 'framer-motion'
 
-const RISK_COLORS = {
-  HIGH: '#ef4444',
-  MEDIUM: '#f59e0b',
-  LOW: '#10b981',
-}
+export default function RiskChart({ riskTotals = {} }) {
+  const high = riskTotals.HIGH || 0
+  const medium = riskTotals.MEDIUM || 0
+  const low = riskTotals.LOW || 0
+  const total = high + medium + low || 1
 
-const CustomTooltip = ({ active, payload }) => {
-  if (!active || !payload || !payload.length) return null
-  const d = payload[0]
-  return (
-    <div className="bg-surface-800 border border-white/10 rounded-lg px-3 py-2 shadow-lg text-xs">
-      <p className="font-medium" style={{ color: d.payload.color }}>{d.name}</p>
-      <p className="text-white">{d.value} issues ({d.payload.percent}%)</p>
-    </div>
-  )
-}
-
-export default function RiskChart({ riskTotals }) {
-  if (!riskTotals) return null
-
-  const total = (riskTotals.HIGH || 0) + (riskTotals.MEDIUM || 0) + (riskTotals.LOW || 0) || 1
-
-  const data = [
-    { name: 'High', value: riskTotals.HIGH || 0, color: RISK_COLORS.HIGH, percent: Math.round(((riskTotals.HIGH || 0) / total) * 100) },
-    { name: 'Medium', value: riskTotals.MEDIUM || 0, color: RISK_COLORS.MEDIUM, percent: Math.round(((riskTotals.MEDIUM || 0) / total) * 100) },
-    { name: 'Low', value: riskTotals.LOW || 0, color: RISK_COLORS.LOW, percent: Math.round(((riskTotals.LOW || 0) / total) * 100) },
+  const segments = [
+    { label: 'HIGH', count: high, pct: Math.round((high / total) * 100), color: 'bg-pink', textColor: 'risk-high', glow: 'glow-pink' },
+    { label: 'MEDIUM', count: medium, pct: Math.round((medium / total) * 100), color: 'bg-warning', textColor: 'risk-medium', glow: '' },
+    { label: 'LOW', count: low, pct: Math.round((low / total) * 100), color: 'bg-success', textColor: 'risk-low', glow: '' },
   ]
 
   return (
-    <div className="bg-surface-600 border border-white/5 rounded-xl p-6">
-      <h3 className="text-sm font-semibold text-white mb-4">Risk Distribution</h3>
-      <div className="flex items-center">
-        <div className="w-44 h-44">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                cx="50%"
-                cy="50%"
-                innerRadius={48}
-                outerRadius={68}
-                paddingAngle={4}
-                dataKey="value"
-                stroke="none"
-                animationBegin={0}
-                animationDuration={800}
-              >
-                {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-5">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted mb-4">Risk Distribution</h3>
 
-        <div className="flex-1 space-y-3 ml-4">
-          {data.map((item) => (
-            <div key={item.name} className="flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                <span className="text-sm text-muted">{item.name}</span>
-              </div>
-              <div className="flex items-center space-x-3">
-                <span className="text-sm font-semibold text-white">{item.value}</span>
-                <span className="text-xs text-muted w-10 text-right">{item.percent}%</span>
-              </div>
-            </div>
-          ))}
-        </div>
+      {/* Horizontal stacked bar */}
+      <div className="flex h-4 rounded-full overflow-hidden bg-surface-600 mb-5">
+        {segments.map(s => s.count > 0 && (
+          <motion.div key={s.label} initial={{ width: 0 }} animate={{ width: `${s.pct}%` }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+            className={`${s.color} h-full`} title={`${s.label}: ${s.count}`}
+          />
+        ))}
       </div>
-    </div>
+
+      {/* Legend */}
+      <div className="flex justify-between">
+        {segments.map(s => (
+          <div key={s.label} className="text-center">
+            <p className={`text-2xl font-bold ${s.textColor}`}>{s.count}</p>
+            <p className="text-[10px] text-muted uppercase tracking-wider mt-0.5">{s.label}</p>
+            <p className="text-xs text-muted">{s.pct}%</p>
+          </div>
+        ))}
+      </div>
+    </motion.div>
   )
 }

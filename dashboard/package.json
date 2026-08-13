@@ -10,10 +10,12 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^0.300.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^2.10.0",
-    "lucide-react": "^0.300.0"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

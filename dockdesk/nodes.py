@@ -21,49 +21,117 @@ from langchain_core.output_parsers import JsonOutputParser
 
 console = Console(highlight=False)
 
-# Legacy cache dir — migrated to SQLite on first run
+# Legacy cache dir - migrated to SQLite on first run
 LEGACY_CACHE_DIR = ".dockdesk_cache"
 
 # Default models
 DEFAULT_MODEL = "qwen2.5-coder:7b"                 # Code analysis (the "hands")
 DEFAULT_REASONING_MODEL = "deepseek-r1:1.5b"  # Logical reasoning (the "brain")
 DEFAULT_TEMPERATURE = 0.1
+# ── Module-level singletons (migrated to state in v3) ──
+# Keep simple module-level placeholders to avoid NameError in node functions.
+# Concrete initialization occurs per-run inside `_init_infrastructure`.
+_cache = None
+_pool = None
+_plugin_mgr = None
+_current_workspace = None
 
-# ── Module-level singletons (initialized per-run in discover_node) ──
-_cache: Optional[ResultCache] = None
-_pool: Optional[OllamaPool] = None
+
+def _get_file_git_diff(file_path: str, workspace: str) -> Optional[str]:
+    """Extract only the unstaged/staged or branch diff for a target file."""
+    try:
+        import os
+        from git import Repo
+        repo = Repo(workspace, search_parent_directories=True)
+        if repo.bare:
+            return None
+        repo_root = os.path.abspath(repo.working_tree_dir or workspace)
+        rel_path = os.path.relpath(os.path.abspath(file_path), repo_root)
+        
+        candidates = []
+        base_ref = os.environ.get("GITHUB_BASE_REF")
+        if base_ref:
+            candidates.append(f"origin/{base_ref}")
+        candidates.extend(["origin/main", "origin/master", "main", "master"])
+        
+        diff_text = None
+        for target in candidates:
+            try:
+                diff_text = repo.git.diff(f"{target}..HEAD", "--", rel_path)
+                if diff_text.strip():
+                    break
+            except Exception:
+                continue
+                
+        if not diff_text or not diff_text.strip():
+            try:
+                diff_text = repo.git.diff("HEAD", "--", rel_path)
+            except Exception:
+                pass
+            if not diff_text or not diff_text.strip():
+                try:
+                    diff_text = repo.git.diff("--", rel_path)
+                except Exception:
+                    pass
+                    
+        return diff_text if diff_text and diff_text.strip() else None
+    except Exception:
+        return None
 
 
 def _init_infrastructure(workspace: str, config=None):
-    """Initialize cache + OllamaPool once per run."""
-    global _cache, _pool
+    """Initialize cache + OllamaPool. Re-initializes if workspace changes.
+
+    This function assigns module-level placeholders so other nodes can
+    reference `_cache` and `_pool` safely. It tolerates failures and
+    leaves placeholders as None when initialization cannot complete.
+    """
+    global _cache, _pool, _plugin_mgr, _current_workspace
+
+    _current_workspace = workspace
 
     # SQLite cache
-    _cache = ResultCache(workspace)
-
-    # Migrate old JSON cache if exists
-    legacy_dir = os.path.join(workspace, LEGACY_CACHE_DIR)
-    if os.path.isdir(legacy_dir):
-        count = _cache.migrate_from_json_cache(legacy_dir)
-        if count > 0:
-            console.print(f"[dim]  Migrated {count} cached results to SQLite[/dim]")
+    try:
+        _cache = ResultCache(workspace)
+        # Migrate old JSON cache if exists
+        legacy_dir = os.path.join(workspace, LEGACY_CACHE_DIR)
+        if os.path.isdir(legacy_dir):
+            count = _cache.migrate_from_json_cache(legacy_dir)
+            if count > 0:
+                console.print(f"[dim]  Migrated {count} cached results to SQLite[/dim]")
+    except Exception:
+        _cache = None
 
     # Clear cache if requested
-    if config and getattr(config, 'clear_cache', False):
-        _cache.clear()
-        console.print("[dim]  Cache cleared[/dim]")
+    try:
+        if config and getattr(config, 'clear_cache', False) and _cache:
+            _cache.clear()
+            console.print("[dim]  Cache cleared[/dim]")
+    except Exception:
+        pass
+
+    # Plugin manager
+    try:
+        from .plugins import PluginManager
+        _plugin_mgr = PluginManager(workspace).discover()
+    except Exception:
+        _plugin_mgr = None
 
     # OllamaPool
-    urls = None
-    if config:
-        url_list = config.get_ollama_url_list() if hasattr(config, 'get_ollama_url_list') else []
-        if url_list:
-            urls = url_list
-        elif config.ollama_host:
-            urls = [config.ollama_host]
-    _pool = OllamaPool(urls)
-    if _pool.size > 1:
-        console.print(f"[white][*] Ollama pool: {_pool.size} endpoints[/white]")
+    try:
+        urls = None
+        if config:
+            url_list = config.get_ollama_url_list() if hasattr(config, 'get_ollama_url_list') else []
+            if url_list:
+                urls = url_list
+            elif getattr(config, 'ollama_host', None):
+                urls = [config.ollama_host]
+        if urls:
+            _pool = OllamaPool(urls)
+            if _pool and getattr(_pool, 'size', 0) > 1:
+                console.print(f"[white][*] Ollama pool: {_pool.size} endpoints[/white]")
+    except Exception:
+        _pool = None
 
 # Node: Discover Files (Monorepo-optimized)
 def discover_node(state: AuditState) -> AuditState:
@@ -90,7 +158,7 @@ def discover_node(state: AuditState) -> AuditState:
         max_files=max_files,
         respect_gitignore=respect_gi,
     )
-    # Single discovery walk — find_all() is 2x faster than separate find_code_files() + find_docs()
+    # Single discovery walk - find_all() is 2x faster than separate find_code_files() + find_docs()
     code_files, docs = discovery.find_all()
 
     # Show discovery stats
@@ -235,7 +303,7 @@ def integrity_node(state: AuditState) -> AuditState:
 
         console.print(f"[dim]  └─ Merkle scope: {len(changed_files)} file(s)[/dim]")
 
-    # Load content for scoped files (lazy — only read what we need)
+    # Load content for scoped files (lazy - only read what we need)
     config = state.get("config")
     max_files = config.max_files if config and hasattr(config, 'max_files') and config.max_files > 0 else 0
     max_file_size = config.max_file_size if config and hasattr(config, 'max_file_size') else 512000
@@ -326,7 +394,7 @@ def parse_llm_json(content: str) -> dict:
     except Exception:
         pass
 
-    # 4) Regex fallback — extract individual fields
+    # 4) Regex fallback - extract individual fields
     status_match = re.search(r'"status"\s*:\s*"([^"]+)"', content)
     risk_match = re.search(r'"risk"\s*:\s*"([^"]+)"', content)
     summary_match = re.search(r'"summary"\s*:\s*"([^"]*)"', content)
@@ -353,7 +421,7 @@ def parse_llm_json(content: str) -> dict:
             "reasoning": reasoning_match.group(1) if reasoning_match else "",
         }
 
-    # 5) Last resort — return a structured error rather than crashing the pipeline
+    # 5) Last resort - return a structured error rather than crashing the pipeline
     # Use LOW risk + safe_to_push=True so parse failures don't inflate risk or block pushes
     console.print(f"[white][!] LLM returned unparseable output ({len(content)} chars), using fallback[/white]")
     return {
@@ -389,11 +457,32 @@ def _select_docs_for_file(file_path: str, doc_sources: List[dict], top_k: int = 
     scores.sort(key=lambda x: x[0], reverse=True)
     return [d for _, d in scores[:top_k]]
 
-# Node: Code Analysis — Qwen Coder (the "hands")
+# Node: Code Analysis - Qwen Coder (the "hands")
 # Reads code, compares against docs, detects drift, produces raw findings + draft fixes.
 def code_analysis_node(state: AuditState) -> AuditState:
     if not state["changed_files"]:
         return {"code_findings": []}
+
+    config = state.get("config")
+    workspace = state["workspace_path"]
+    _cache = None
+    if config and not getattr(config, 'clear_cache', False):
+        try:
+            from dockdesk.cache import ResultCache
+            _cache = ResultCache(workspace)
+        except Exception:
+            pass
+
+    _pool = None
+    if config:
+        urls = []
+        if getattr(config, 'pool', None):
+            urls = config.pool.split(',')
+        elif getattr(config, 'ollama_host', None):
+            urls = [config.ollama_host]
+        if urls:
+            from dockdesk.ollama_pool import OllamaPool
+            _pool = OllamaPool(urls)
 
     console.print("[bold cyan]Step 4:[/bold cyan] [white]Code Analysis[/white] [dim](Qwen Coder)[/dim]")
 
@@ -405,7 +494,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
     temperature = config.temperature if config and hasattr(config, 'temperature') else DEFAULT_TEMPERATURE
     timeout = config.timeout_per_file if config and hasattr(config, 'timeout_per_file') else 120
 
-    # Resolve code model — prefer detect_model (legacy) or model
+    # Resolve code model - prefer detect_model (legacy) or model
     code_model = model_name
     if config:
         if config.detect_model:
@@ -415,6 +504,28 @@ def code_analysis_node(state: AuditState) -> AuditState:
 
     console.print(f"[dim]  └─ Code model: {code_model}[/dim]")
 
+    rotate_models = bool(config and hasattr(config, 'rotate_models') and config.rotate_models)
+    rotation_models: List[str] = []
+    file_to_model: Dict[str, str] = {}
+    if rotate_models:
+        rotation_models = _get_available_models_for_rotation()
+        # Keep explicit model first when available so existing behavior stays predictable.
+        if code_model in rotation_models:
+            rotation_models = [code_model] + [m for m in rotation_models if m != code_model]
+        # Avoid noisy model churn when only one model is available.
+        if len(rotation_models) > 1:
+            for i, fp in enumerate(changed_files):
+                file_to_model[fp] = rotation_models[i % len(rotation_models)]
+            console.print(
+                f"[dim]  └─ Model rotation: enabled ({len(rotation_models)} models, round-robin)[/dim]"
+            )
+        else:
+            file_to_model = {fp: code_model for fp in changed_files}
+            rotate_models = False
+            console.print("[dim]  └─ Model rotation requested, but only one local audit model was found[/dim]")
+    else:
+        file_to_model = {fp: code_model for fp in changed_files}
+
     # Batch size for multi-file analysis
     batch_size = config.batch_size if config and hasattr(config, 'batch_size') else 5
     fast_mode = config.fast_mode if config and hasattr(config, 'fast_mode') else False
@@ -423,8 +534,9 @@ def code_analysis_node(state: AuditState) -> AuditState:
     _precomputed_keys: Dict[str, str] = {}
     for fp in changed_files:
         content = state["file_contents"].get(fp, "")
+        selected_model = file_to_model.get(fp, code_model)
         if _cache:
-            _precomputed_keys[fp] = ResultCache.make_key(fp, content, code_model)
+            _precomputed_keys[fp] = ResultCache.make_key(fp, content, selected_model)
 
     _precomputed_docs: Dict[str, List[dict]] = {}
     for fp in changed_files:
@@ -439,6 +551,7 @@ def code_analysis_node(state: AuditState) -> AuditState:
     def _analyze_single(file_path: str) -> dict:
         start_time = time.time()
         code_content = state["file_contents"].get(file_path, "")
+        selected_model = file_to_model.get(file_path, code_model)
 
         # ── SQLite cache check (pre-computed key) ──
         ck = _precomputed_keys.get(file_path)
@@ -452,8 +565,12 @@ def code_analysis_node(state: AuditState) -> AuditState:
         docs_subset = _precomputed_docs.get(file_path, [])
         docs_text = "\n".join([f"[{d['path']}]: {d['content'][:500]}" for d in docs_subset])
 
-        # Truncate code to fit context window — keep first 2000 chars
-        code_trimmed = code_content[:2000]
+        # Truncate code to fit context window - prioritize git diff of changed lines
+        diff_content = _get_file_git_diff(file_path, workspace)
+        if diff_content:
+            code_trimmed = f"--- GIT DIFF ---\n{diff_content[:3000]}\n----------------\n\n--- TRIMMED FULL CODE ---\n{code_content[:1500]}"
+        else:
+            code_trimmed = code_content[:2000]
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a code-vs-documentation drift detector.
@@ -474,7 +591,7 @@ IMPORTANT:
             ("user", "FILE: {file_path}\nCODE:\n{code_content}\nDOCS:\n{docs_text}")
         ])
 
-        llm = _pool.get_llm(model=code_model, temperature=temperature, num_predict=512, num_ctx=2048) if _pool else ChatOllama(model=code_model, temperature=temperature, num_predict=512, num_ctx=2048)
+        llm = _pool.get_llm(model=selected_model, temperature=temperature, num_predict=512, num_ctx=2048) if _pool else ChatOllama(model=selected_model, temperature=temperature, num_predict=512, num_ctx=2048)
         chain = prompt | llm
 
         # If no docs were found, short-circuit to SKIP without calling the LLM
@@ -487,12 +604,26 @@ IMPORTANT:
                 "draft_fix": "",
             }
         else:
-            response = chain.invoke({
-                "file_path": os.path.basename(file_path),
-                "code_content": code_trimmed,
-                "docs_text": effective_docs
-            })
-            result = parse_llm_json(response.content)
+            try:
+                response = chain.invoke({
+                    "file_path": os.path.basename(file_path),
+                    "code_content": code_trimmed,
+                    "docs_text": effective_docs
+                })
+                result = parse_llm_json(response.content)
+            except Exception as e:
+                # OLLAMA / LOCAL LLM CALL FAILED! Fall back to GitHub/Local Heuristic Lens!
+                console.print(f"[bold yellow][!] Local LLM inference failed for {os.path.basename(file_path)}: {e}[/bold yellow]")
+                console.print(f"[yellow]    └─ Falling back to GitHub/Local Heuristic Lens...[/yellow]")
+                
+                from .github_lens import identify_problems
+                result = identify_problems(
+                    file_path=file_path,
+                    workspace=workspace,
+                    code_content=code_content,
+                    docs_text=docs_text
+                )
+                selected_model = result.get("code_model", "Local Heuristic Lens")
 
             # Safety net: if LLM still returned FAIL for no-docs, override to SKIP
             if effective_docs == "(no docs found)" and result.get("status") == "FAIL":
@@ -502,7 +633,7 @@ IMPORTANT:
                 result["summary"] = result.get("summary", "No documentation found")
 
         result["file"] = file_path
-        result["code_model"] = code_model
+        result["code_model"] = selected_model
         result["duration_ms"] = int((time.time() - start_time) * 1000)
         result.setdefault("findings", [])
         result.setdefault("draft_fix", "")
@@ -512,7 +643,7 @@ IMPORTANT:
 
         # Persist to SQLite cache (reuse pre-computed key)
         if _cache and ck:
-            _cache.put(ck, result, model=code_model, file_path=file_path)
+            _cache.put(ck, result, model=selected_model, file_path=file_path)
         return result
 
     def _analyze_batch(file_paths: List[str]) -> List[dict]:
@@ -611,7 +742,7 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
     cfg_workers = config.workers if config and hasattr(config, 'workers') and config.workers > 0 else 0
     max_workers = cfg_workers if cfg_workers > 0 else min(pool_workers, len(changed_files)) if changed_files else 1
 
-    use_batching = fast_mode and len(changed_files) > batch_size
+    use_batching = (not rotate_models) and fast_mode and len(changed_files) > batch_size
 
     from dockdesk.ui import get_progress_bar
     with get_progress_bar() as progress:
@@ -661,7 +792,7 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
     return {"code_findings": code_findings}
 
 
-# Node: Reasoning — DeepSeek-R1-Distill (the "brain")
+# Node: Reasoning - DeepSeek-R1-Distill (the "brain")
 # Judges risk, validates draft fixes, decides if changes are safe to push.
 def reasoning_node(state: AuditState) -> AuditState:
     code_findings = state.get("code_findings", [])
@@ -687,7 +818,7 @@ def reasoning_node(state: AuditState) -> AuditState:
 
     console.print(f"[dim]  └─ Reasoning model: {reasoning_model}[/dim]")
 
-    # Skip PASS and SKIP files — no need to reason about them
+    # Skip PASS and SKIP files - no need to reason about them
     needs_reasoning = [f for f in code_findings if f.get("status") not in ("PASS", "SKIP")]
     pass_throughs = [f for f in code_findings if f.get("status") == "PASS"]
     skip_throughs = [f for f in code_findings if f.get("status") == "SKIP"]
@@ -747,7 +878,21 @@ def reasoning_node(state: AuditState) -> AuditState:
         start_time = time.time()
         file_path = str(finding.get("file", "unknown"))
 
-        # Safely extract all fields — handle dict/list/None/any type
+        if finding.get("code_model") in ("GitHub Lens", "Local Heuristic Lens"):
+            return {
+                "file": file_path,
+                "status": finding.get("status", "FAIL"),
+                "risk": finding.get("risk", "HIGH"),
+                "summary": finding.get("summary", ""),
+                "fix": finding.get("fix") or finding.get("draft_fix") or "",
+                "safe_to_push": finding.get("safe_to_push", False),
+                "reasoning": "Audited using the unbreakable fallback search mechanism.",
+                "code_model": finding.get("code_model"),
+                "reasoning_model": finding.get("reasoning_model"),
+                "duration_ms": finding.get("duration_ms", 0) + int((time.time() - start_time) * 1000),
+            }
+
+        # Safely extract all fields - handle dict/list/None/any type
         status = _safe_str(finding.get("status", "UNKNOWN"), 50)
         summary = _safe_str(finding.get("summary", ""), 200)
         draft_fix = _safe_str(finding.get("draft_fix", ""), 200)
@@ -778,7 +923,7 @@ Rules:
         llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048)
         chain = prompt | llm
 
-        # Retry loop — DeepSeek-R1 sometimes returns empty due to internal <think> consuming all tokens
+        # Retry loop - DeepSeek-R1 sometimes returns empty due to internal <think> consuming all tokens
         # Progressive num_predict escalation: 1536 → 2048 on retry
         result = None
         last_content = ""
@@ -852,13 +997,13 @@ Rules:
             "summary": f.get("summary", "Code matches documentation"),
             "fix": "",
             "safe_to_push": True,
-            "reasoning": "Code analysis passed — no drift detected.",
+            "reasoning": "Code analysis passed - no drift detected.",
             "code_model": f.get("code_model", ""),
             "reasoning_model": reasoning_model,
             "duration_ms": f.get("duration_ms", 0),
         })
 
-    # Pass-through results for SKIP files (no docs found — no LLM call needed)
+    # Pass-through results for SKIP files (no docs found - no LLM call needed)
     for f in skip_throughs:
         audit_results.append({
             "file": f.get("file", "unknown"),
@@ -867,7 +1012,7 @@ Rules:
             "summary": f.get("summary", "No documentation found for this file"),
             "fix": "",
             "safe_to_push": True,
-            "reasoning": "No docs found — nothing to compare.",
+            "reasoning": "No docs found - nothing to compare.",
             "code_model": f.get("code_model", ""),
             "reasoning_model": reasoning_model,
             "duration_ms": f.get("duration_ms", 0),
@@ -924,10 +1069,53 @@ Rules:
     high_count = sum(1 for r in audit_results if r.get("risk") == "HIGH")
     console.print(f"[dim]  └─ Reasoning done: [green]{safe_count} safe[/green], [red]{unsafe_count} unsafe[/red], [bold red]{high_count} HIGH[/bold red] risk[/dim]")
 
+    # Run plugin post-audit hooks
+    if _plugin_mgr and _plugin_mgr.has_plugins:
+        audit_results = _plugin_mgr.run_post_hooks(audit_results)
+        console.print(f"[dim]  \u2514\u2500 Plugins: post_audit hooks applied[/dim]")
+
+    from dockdesk.orchestrator import execute_analysis
+    state.setdefault("orchestration_metrics", {})
+    state["audit_results"] = audit_results
+    state = execute_analysis(state)
     return {"audit_results": audit_results}
 
 
-# Node: Discord Notification
+# Node: Accountability - Per-developer drift tracking + Merkle audit trail
+def accountability_node(state: AuditState) -> AuditState:
+    audit_results = state.get("audit_results", [])
+    if not audit_results:
+        return {"accountability_data": None, "audit_chain_link": None}
+
+    console.print("[bold cyan]Step 5.5:[/bold cyan] [white]Accountability Tracking[/white]")
+
+    workspace = state["workspace_path"]
+
+    # Build per-developer accountability
+    from dockdesk.accountability import build_accountability, build_audit_chain_link
+    from dockdesk.orchestrator import generate_run_id
+
+    accountability = build_accountability(audit_results, workspace)
+
+    dev_count = len(accountability.get("developers", {}))
+    offenders = len(accountability.get("top_offenders", []))
+    clean = len(accountability.get("clean_streaks", []))
+    codeowners_tag = " (CODEOWNERS loaded)" if accountability.get("codeowners_loaded") else ""
+
+    console.print(f"[dim]  └─ {dev_count} developers tracked, {offenders} with drift, {clean} clean{codeowners_tag}[/dim]")
+
+    # Build tamper-evident audit chain link
+    run_id = state.get("orchestration_metrics", {}).get("run_id", generate_run_id())
+    chain_link = build_audit_chain_link(run_id, workspace, audit_results)
+
+    console.print(f"[dim]  └─ Audit chain: link #{chain_link.chain_hash[:12]}... (prev: {chain_link.previous_hash[:12]}...)[/dim]")
+
+    return {
+        "accountability_data": accountability,
+        "audit_chain_link": chain_link.to_dict(),
+    }
+
+
 def notify_node(state: AuditState) -> AuditState:
     config = state.get("config")
     webhook_url = ""
@@ -950,6 +1138,12 @@ def notify_node(state: AuditState) -> AuditState:
         code_model=code_model,
         reasoning_model=reasoning_model,
     )
+
+    # Best-effort follow-up tree summary for quick directory-level visibility.
+    try:
+        notifier.post_tree_summary(audit_results=audit_results)
+    except Exception:
+        pass
 
     return {"discord_posted": posted}
 
@@ -1015,7 +1209,7 @@ def reporting_node(state: AuditState) -> AuditState:
         risk_str = f"[{risk_style_map.get(risk, 'dim')}]{risk_label}[/{risk_style_map.get(risk, 'dim')}]"
 
         safe = res.get("safe_to_push")
-        safe_str = "[bold #00FFFF]✔ YES[/bold #00FFFF]" if safe else "[bold #FF1493]✘ NO[/bold #FF1493]"
+        safe_str = "[bold #00FFFF] YES[/bold #00FFFF]" if safe else "[bold #FF1493] NO[/bold #FF1493]"
         summary = (res.get("summary", "") or "")[:80]
 
         summary_table.add_row(rel, status_str, risk_str, safe_str, summary)
@@ -1023,24 +1217,66 @@ def reporting_node(state: AuditState) -> AuditState:
     console.print(summary_table)
     console.print()
 
+    from rich.tree import Tree
+    import subprocess
+    import re
+
+    error_tree = Tree("[bold cyan]Semantic Drift Error Trajectories[/bold cyan]")
+    has_errors = False
+
+    for res in results:
+        status = res.get("status", "?")
+        if status not in ("FAIL", "ERROR"):
+            continue
+        
+        file_path = res.get("file", "unknown")
+        try:
+            rel = os.path.relpath(file_path, workspace)
+        except ValueError:
+            rel = file_path
+
+        author = "Unknown"
+        try:
+            blame_out = subprocess.check_output(
+                ["git", "blame", "--porcelain", rel], 
+                cwd=workspace, stderr=subprocess.DEVNULL, text=True
+            )
+            m = re.search(r'^author (.+)$', blame_out, re.MULTILINE)
+            if m:
+                author = m.group(1)
+        except Exception:
+            pass
+
+        node = error_tree.add(f"[bold red]{rel}[/bold red] (Author: [yellow]{author}[/yellow])")
+        findings = res.get("findings", [])
+        if not findings and "summary" in res:
+            findings = [res["summary"]]
+        for f in findings:
+            node.add(f"[white]{f}[/white]")
+        has_errors = True
+
+    if has_errors:
+        console.print(error_tree)
+        console.print()
+
     # ── Build markdown report ──
-    report = f"""# 🛡️ DockDesk Audit Report
+    report = f"""#  DockDesk Audit Report
 
 **Architecture:** Dual-Model (Code + Reasoning)  
 **Code Agent:** {code_model_display}  
 **Reasoning Agent:** {reasoning_display}  
 **Files Audited:** {len(results)}  
-**Status:** ✅ {pass_count} Pass | ❌ {fail_count} Fail | ⚠️ {error_count} Error
+**Status:** {pass_count} Pass | {fail_count} Fail | {error_count} Error
 
 ## Risk Distribution
 | Level | Count |
 |-------|-------|
-| 🔴 HIGH | {high_risk} |
-| 🟡 MEDIUM | {medium_risk} |
-| 🟢 LOW | {low_risk} |
+| HIGH | {high_risk} |
+| MEDIUM | {medium_risk} |
+| LOW | {low_risk} |
 
 ## Push Safety
-| ✅ Safe to Push | ❌ Unsafe | 
+| Safe to Push | Unsafe | 
 |----------------|----------|
 | {safe_count} | {unsafe_count} |
 
@@ -1054,11 +1290,11 @@ def reporting_node(state: AuditState) -> AuditState:
     
     for res in results:
         status = res.get("status", "UNKNOWN")
-        icon = {"PASS": "✅", "FAIL": "❌"}.get(status, "⚠️")
+        icon = {"PASS": "PASS", "FAIL": "FAIL"}.get(status, "")
         risk = res.get("risk", "UNKNOWN")
-        risk_badge = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}.get(risk, "⚪")
+        risk_badge = {"HIGH": "HIGH", "MEDIUM": "MEDIUM", "LOW": "LOW"}.get(risk, "UNKNOWN")
         safe = res.get("safe_to_push", None)
-        safe_badge = "✅ Safe" if safe is True else "❌ Unsafe" if safe is False else "❓ Unknown"
+        safe_badge = "Safe" if safe is True else "Unsafe" if safe is False else "Unknown"
         
         file_path = res.get("file", "unknown")
         try:
@@ -1072,10 +1308,10 @@ def reporting_node(state: AuditState) -> AuditState:
         report += f"**Summary:** {res.get('summary', 'No summary')}\n\n"
         
         if res.get("reasoning"):
-            report += f"<details>\n<summary>🧠 DeepSeek Reasoning</summary>\n\n{res.get('reasoning')}\n\n</details>\n\n"
+            report += f"<details>\n<summary>DeepSeek Reasoning</summary>\n\n{res.get('reasoning')}\n\n</details>\n\n"
         
         if res.get("fix"):
-            report += f"<details>\n<summary>📝 Proposed Fix</summary>\n\n```markdown\n{res.get('fix')}\n```\n\n</details>\n\n"
+            report += f"<details>\n<summary>Proposed Fix</summary>\n\n```markdown\n{res.get('fix')}\n```\n\n</details>\n\n"
         
         report += "---\n\n"
     
@@ -1088,12 +1324,112 @@ def reporting_node(state: AuditState) -> AuditState:
     console.print(f"[dim]  └─ Report → {report_path}[/dim]")
 
     # ── Auto-export dashboard data ──
-    _auto_export_dashboard(workspace, results, model_name, reasoning_model)
+    _auto_export_dashboard(workspace, results, model_name, reasoning_model, state)
         
     return {"report_path": "audit_report.md", "mermaid_graph": mermaid_graph}
 
 
-def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str, reasoning_model: str):
+def _build_audit_tree(results: List[dict], workspace: str) -> dict:
+    """Build a nested directory tree from flat audit results for the dashboard.
+
+    Returns a tree structure like:
+    {
+        "name": "root",
+        "type": "dir",
+        "children": [
+            {
+                "name": "dockdesk",
+                "type": "dir",
+                "risk_counts": {"HIGH": 1, "MEDIUM": 0, "LOW": 2},
+                "children": [
+                    {
+                        "name": "cli.py",
+                        "type": "file",
+                        "status": "FAIL",
+                        "risk": "HIGH",
+                        "safe_to_push": false,
+                        "summary": "...",
+                        "code_model": "...",
+                        "reasoning_model": "...",
+                        "duration_ms": 1234
+                    }
+                ]
+            }
+        ]
+    }
+    """
+    root = {"name": os.path.basename(workspace) or "root", "type": "dir", "children": [], "risk_counts": {"HIGH": 0, "MEDIUM": 0, "LOW": 0}}
+
+    for res in results:
+        file_path = res.get("file", "unknown")
+        try:
+            rel = os.path.relpath(file_path, workspace)
+        except ValueError:
+            rel = file_path
+
+        # Normalize path separators
+        parts = rel.replace("\\", "/").split("/")
+
+        # Navigate/create tree structure
+        current = root
+        for i, part in enumerate(parts):
+            if i == len(parts) - 1:
+                # Leaf file node
+                file_node = {
+                    "name": part,
+                    "type": "file",
+                    "path": rel,
+                    "status": res.get("status", "UNKNOWN"),
+                    "risk": res.get("risk", "UNKNOWN"),
+                    "safe_to_push": res.get("safe_to_push", False),
+                    "summary": str(res.get("summary", "") or "")[:200],
+                    "fix": str(res.get("fix", "") or "")[:300],
+                    "reasoning": str(res.get("reasoning", "") or "")[:300],
+                    "code_model": res.get("code_model", ""),
+                    "reasoning_model": res.get("reasoning_model", ""),
+                    "duration_ms": res.get("duration_ms", 0),
+                }
+                current["children"].append(file_node)
+
+                # Propagate risk counts up to all parent directories
+                risk = res.get("risk", "UNKNOWN")
+                if risk in ("HIGH", "MEDIUM", "LOW"):
+                    # Walk back up the path to update all ancestors
+                    ancestor = root
+                    for ancestor_part in parts[:-1]:
+                        for child in ancestor.get("children", []):
+                            if child.get("type") == "dir" and child.get("name") == ancestor_part:
+                                child["risk_counts"][risk] = child["risk_counts"].get(risk, 0) + 1
+                                ancestor = child
+                                break
+                    # Also update root
+                    root["risk_counts"][risk] = root["risk_counts"].get(risk, 0) + 1
+            else:
+                # Directory node - find or create
+                found = None
+                for child in current.get("children", []):
+                    if child.get("type") == "dir" and child.get("name") == part:
+                        found = child
+                        break
+                if not found:
+                    found = {"name": part, "type": "dir", "children": [], "risk_counts": {"HIGH": 0, "MEDIUM": 0, "LOW": 0}}
+                    current["children"].append(found)
+                current = found
+
+    return root
+
+
+def _get_available_models_for_rotation() -> List[str]:
+    """Get all locally available audit-suitable models for multi-model rotation."""
+    try:
+        from .models import get_available_ollama_models, is_model_audit_suitable
+        available = get_available_ollama_models()
+        return [m for m in available if is_model_audit_suitable(m)]
+    except Exception:
+        return []
+
+
+def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str, reasoning_model: str, state: dict = {}):
     """Auto-generate dashboard_data.json after every run for the React dashboard."""
     try:
         from .changelog import ChangelogReader, DEFAULT_CHANGELOG_FILE
@@ -1128,7 +1464,31 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
                 "duration_ms": res.get("duration_ms", 0),
                 "code_model": res.get("code_model", ""),
                 "reasoning_model": res.get("reasoning_model", ""),
+                "author": res.get("author", "Unknown"),
+                "author_email": res.get("author_email", ""),
+                "last_commit": res.get("last_commit", ""),
+                "team": res.get("team", ""),
             })
+
+        # Build audit tree from results for tree visualization
+        data["audit_tree"] = _build_audit_tree(results, workspace)
+
+        # Add available models list for multi-model display
+        data["available_models"] = _get_available_models_for_rotation()
+
+        # Collect distinct models actually used in this run
+        models_used = set()
+        for res in results:
+            if res.get("code_model"):
+                models_used.add(res["code_model"])
+            if res.get("reasoning_model"):
+                models_used.add(res["reasoning_model"])
+        data["models_used_this_run"] = sorted(models_used)
+        data["orchestration_metrics"] = state.get("orchestration_metrics", {})
+
+        # Accountability data (USP)
+        data["accountability"] = state.get("accountability_data", {})
+        data["audit_chain_link"] = state.get("audit_chain_link", {})
 
         # Write to both workspace root and dashboard/public for dev server
         for dest in [

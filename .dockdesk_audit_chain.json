@@ -1,0 +1,30 @@
+[
+  {
+    "run_id": "dd-4f6fce3a595a",
+    "timestamp": "2026-05-06T04:29:55Z",
+    "workspace": "dockdesk",
+    "files_audited": 7,
+    "risk_distribution": {
+      "HIGH": 1,
+      "MEDIUM": 0,
+      "LOW": 6
+    },
+    "content_hash": "5330fb9f52c84228ff8a2d218a8b706fc39e8796db8fa8f4128ba24a325ee555",
+    "previous_hash": "genesis",
+    "chain_hash": "3129336d3e5192fd8b650340586a17226522e80dbd9825db02e59401d9b717ed"
+  },
+  {
+    "run_id": "dd-5254f11f5f23",
+    "timestamp": "2026-05-06T04:31:56Z",
+    "workspace": "dockdesk",
+    "files_audited": 2,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 2
+    },
+    "content_hash": "e6ae6fbe08288b028eaa9bb9cf5c5247124a8b0287e63f3152a705be04783949",
+    "previous_hash": "3129336d3e5192fd8b650340586a17226522e80dbd9825db02e59401d9b717ed",
+    "chain_hash": "445abd0c7fb42fdd60b0bc18a5430df5dc04218564c7081f9374b9263f812bd6"
+  }
+]

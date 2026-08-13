@@ -12,7 +12,7 @@ FROM python:3.11-slim
 
 LABEL maintainer="DockDesk" \
       description="Local-first semantic documentation auditor" \
-      version="2.1.0"
+      version="3.0.0"
 
 # Install git (needed for git-diff based scoping)
 RUN apt-get update && \

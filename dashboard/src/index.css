@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,100 +7,137 @@
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color-scheme: dark;
+  --purple: #8A8A8A;
+  --hot-pink: #C0C0C0;
+  --orchid: #B0B0B0;
+  --magenta: #D0D0D0;
+  --cyan: #A8A8A8;
+  --gold: #E0E0E0;
+  --bg: #080808;
+  --surface: #111111;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #0e0e20;
-  color: #e2e8f0;
+  background-color: var(--bg);
+  color: #f3f3f3;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  filter: grayscale(1) contrast(1.05);
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.3);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.5);
+/* ── Custom Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(180, 180, 180, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(220, 220, 220, 0.45); }
+
+/* ── Card Surface ── */
+.glass-card {
+  background: rgba(18, 18, 18, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-/* Pulse animation for live status */
+.glass-card-hover {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 300ms ease;
+}
+.glass-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.glow-purple,
+.glow-pink,
+.glow-cyan,
+.glow-breathe {
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+/* ── Border Accent ── */
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.24), rgba(255,255,255,0.08));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ── Pulse Animations ── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
-.pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+@keyframes neon-flicker { 0%, 100% { text-shadow: none; } }
+
+/* ── Tree View Animations ── */
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); max-height: 0; }
+  to { opacity: 1; transform: translateY(0); max-height: 2000px; }
+}
+.animate-slideDown { animation: slideDown 200ms ease-out; }
+
+.tree-branch { position: relative; }
+.tree-branch::before {
+  content: '';
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.04) 100%);
+}
+.tree-branch button:hover { background: rgba(255, 255, 255, 0.06); }
+
+/* ── Active sidebar indicator ── */
+.sidebar-active {
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+}
+.sidebar-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, #D6D6D6, #8C8C8C);
+  box-shadow: none;
 }
 
-/* Card hover lift */
-.card-hover {
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-.card-hover:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
+/* ── Risk badges ── */
+.risk-high { color: #F2F2F2; text-shadow: none; }
+.risk-medium { color: #D0D0D0; text-shadow: none; }
+.risk-low { color: #B0B0B0; text-shadow: none; }
 
-/* ── Print / PDF Export Styles ── */
+/* ── Print / PDF Export ── */
 @media print {
-  body {
-    background-color: white !important;
-    color: #1a1a2e !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  /* Hide sidebar, header controls, and interactive elements */
-  aside,
-  .print\\:hidden,
-  button,
-  .pulse-dot {
-    display: none !important;
-  }
-
-  /* Remove sidebar margin on main content */
-  .ml-56, .ml-16 {
-    margin-left: 0 !important;
-  }
-
-  /* Cards: white background with border */
-  [class*="bg-surface"] {
-    background-color: white !important;
-    border: 1px solid #e2e8f0 !important;
-  }
-
-  /* Make text dark for readability */
-  [class*="text-white"],
-  [class*="text-muted"],
-  [class*="text-accent"] {
-    color: #1a1a2e !important;
-  }
-
-  /* Page break control */
-  .grid {
-    break-inside: avoid;
-  }
-
-  /* Header for print */
+  body { background-color: white !important; color: #1a1a2e !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  aside, .print\:hidden, button, .pulse-dot { display: none !important; }
+  .ml-56, .ml-16 { margin-left: 0 !important; }
+  [class*="bg-surface"], .glass-card { background-color: white !important; border: 1px solid #e2e8f0 !important; }
+  [class*="text-white"], [class*="text-muted"] { color: #1a1a2e !important; }
+  .grid { break-inside: avoid; }
   main::before {
     content: "DockDesk Audit Report";
-    display: block;
-    font-size: 24px;
-    font-weight: 700;
-    margin-bottom: 16px;
-    color: #1a1a2e;
-    border-bottom: 2px solid #6366f1;
-    padding-bottom: 8px;
+    display: block; font-size: 24px; font-weight: 700; margin-bottom: 16px; color: #1a1a2e;
+    border-bottom: 2px solid #8A2BE2; padding-bottom: 8px;
   }
 }
