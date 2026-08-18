@@ -383,20 +383,31 @@ def _chat_interface() -> None:
             target = intent.get("workspace", "current")
             args_obj = intent.get("args", {})
             include_from_args = args_obj.get("include")
+            has_explicit_args = bool(include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]))
             
-            # Always resolve target first to support auditing entire nested folders properly
-            selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target, skip_prompts=bool(include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"])))
-            if selected is None:
-                continue
+            # ── Workspace Resolution ──
+            # If target is "current" (user just said "audit" with no path),
+            # skip ALL interactive prompts and use the current workspace directly.
+            if target == "current" or target == workspace:
+                target_ws = workspace
+                final_include = include_from_args
+                console.print(f"[green]⚡ Activating audit in current workspace:[/green] [#FF69B4]{workspace}[/#FF69B4]")
+            else:
+                # User specified an explicit path via NLP (e.g., "audit src/", "audit flask")
+                selected = _prompt_audit_target(
+                    current_workspace=workspace,
+                    suggested_target=target,
+                    skip_prompts=has_explicit_args
+                )
+                if selected is None:
+                    continue
+                target_ws, final_include = selected
             
-            target_ws, final_include = selected
-            
-            # If the user specified explicit options via NLP, we skip the options prompts
-            if include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]):
-                # Use include_from_args if NLP provided it, else fallback to what target resolution gave
+            # ── Build Options ──
+            if has_explicit_args:
+                # NLP provided explicit flags — skip the options prompt entirely
                 include_pattern = include_from_args if include_from_args else final_include
                 
-                # Fetch base config
                 from dockdesk.config import build_config
                 try:
                     base_config = build_config(target_ws)
@@ -444,11 +455,9 @@ def _chat_interface() -> None:
                 console.print("[green][+] NLP parsed options automatically. Starting audit...[/green]")
                 run_audit(opts)
             else:
-                selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target)
-                if selected is None:
-                    continue
-
-                target_ws, include_pattern = selected
+                # No explicit flags — show the quick options prompt (Y/customize)
+                # but skip the target picker since we already resolved it above
+                include_pattern = final_include
                 opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
                 if opts is not None:
                     opts._from_chat = True
@@ -616,51 +625,11 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
     elif skip_prompts:
         return str(current), None
 
-    console.print(Panel(
-        "[bold #FF1493]Audit Target[/bold #FF1493]\n"
-        "[dim]Choose what to audit first. You can provide a file or folder path.\n"
-        "Use '.' for current workspace, 'b' to browse folders, or 'q' to cancel.[/dim]",
-        border_style="#8A2BE2",
-    ))
-
-    while True:
-        raw = Prompt.ask("[#DA70D6]Path to audit (file/folder)[/#DA70D6]", default=".").strip()
-
-        if raw.lower() == "q":
-            return None
-        if raw.lower() == "b":
-            picked = _browse_for_workspace(current, enter_on_select=False)
-            if not picked:
-                continue
-            return str(picked.resolve()), None
-        if raw == ".":
-            return str(current), None
-
-        matches = _resolve_user_path(raw)
-        target = _select_from_matches(matches, raw)
-        
-        if not target:
-            console.print("[yellow]🤖 I couldn't find a good match for that. Let's browse manually.[/yellow]")
-            picked = _browse_for_workspace(current, enter_on_select=False)
-            if not picked:
-                continue
-            return str(picked.resolve()), None
-
-        if not target.exists():
-            console.print(f"[bold red]🤖 I couldn't find the path: {target}[/bold red]")
-            continue
-
-        if target.is_file():
-            ws = target.parent.resolve()
-            include = target.name
-            console.print(f"[green]🤖 Auditing individual file:[/green] {target}")
-            return str(ws), include
-
-        if target.is_dir():
-            console.print(f"[green]🤖 Auditing folder:[/green] {target}")
-            return str(target.resolve()), None
-
-        console.print("[yellow][!] Unsupported target type. Choose a file or folder.[/yellow]")
+    # If no suggestion matched anything, default to the current workspace
+    # instead of forcing the user through an interactive file browser.
+    # The user already cd'd here — respect that.
+    console.print(f"[green]⚡ Using current workspace:[/green] [#FF69B4]{current}[/#FF69B4]")
+    return str(current), None
 
 
 def _interactive_audit_options(workspace: str, include_pattern: str | None = None) -> argparse.Namespace | None:
