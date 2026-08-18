@@ -20,3 +20,5 @@ merkle_snapshot.json
 # Dashboard
 dashboard/node_modules/
 dashboard/dist/
+dashboard/public/dashboard_data.json
+dashboard_data.json
