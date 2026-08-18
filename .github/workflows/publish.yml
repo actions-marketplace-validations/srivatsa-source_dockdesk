@@ -47,12 +47,19 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Twine
+        run: pip install twine
+
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        # Uses OIDC trusted publishing (configure at pypi.org/manage/project/dockdesk/settings/publishing/)
-        # If not using trusted publishing, add a PYPI_API_TOKEN secret and uncomment:
-        # with:
-        #   password: ${{ secrets.PYPI_API_TOKEN }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
 
   github-release:
     name: Create GitHub Release

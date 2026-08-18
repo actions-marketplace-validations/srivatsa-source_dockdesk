@@ -1,4 +1,4 @@
-# DockDesk v3.1.2
+# DockDesk v3.1.3
 
 **Local-First Semantic Documentation Auditor**
 
