@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dockdesk"
-version = "3.1.0"
+version = "3.1.2"
 description = "Local-first semantic documentation auditor using dual LLM models via Ollama"
 readme = "README.md"
 license = {text = "MIT"}
@@ -34,7 +34,6 @@ dependencies = [
     "rich",
     "pathspec>=0.11.0",
     "numpy>=1.26.0",
-    "discord.py>=2.4.0",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +41,13 @@ rag = [
     "chromadb>=0.4.0",
     "sentence-transformers>=2.2.0",
     "langchain-huggingface",
+]
+discord = [
+    "discord.py>=2.4.0",
+]
+cloud = [
+    "openai>=1.50.0",
+    "anthropic>=0.40.0",
 ]
 
 [project.scripts]
