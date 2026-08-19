@@ -1,0 +1,1 @@
+Terminates the program execution immediately.

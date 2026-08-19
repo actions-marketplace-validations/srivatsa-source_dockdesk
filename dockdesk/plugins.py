@@ -51,48 +51,7 @@ class PluginManager:
 
     def discover(self) -> "PluginManager":
         """Scan the plugins directory and load all .py files."""
-        if self._loaded:
-            return self
-
-        if not self.plugins_dir.is_dir():
-            self._loaded = True
-            return self
-
-        py_files = sorted(self.plugins_dir.glob("*.py"))
-        if not py_files:
-            self._loaded = True
-            return self
-
-        # Security disclaimer
-        console.print(
-            f"[yellow] Loading {len(py_files)} plugin(s) from "
-            f"{self.plugins_dir}[/yellow]"
-        )
-        console.print(
-            "[dim]  Plugins execute arbitrary code. "
-            "Review them before use.[/dim]"
-        )
-
-        for py_file in py_files:
-            try:
-                name = py_file.stem
-                spec = importlib.util.spec_from_file_location(
-                    f"dockdesk_plugin_{name}", str(py_file)
-                )
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    sys.modules[f"dockdesk_plugin_{name}"] = mod
-                    spec.loader.exec_module(mod)
-                    plugin = Plugin(name, mod)
-                    self._plugins.append(plugin)
-                    console.print(
-                        f"[dim]   Loaded plugin: {name} ({plugin})[/dim]"
-                    )
-            except Exception as e:
-                console.print(
-                    f"[red]  ✗ Failed to load plugin {py_file.name}: {e}[/red]"
-                )
-
+        # [Refactor Part 1] Plugin execution is disabled by default to minimize CLI surface.
         self._loaded = True
         return self
 

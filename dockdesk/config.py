@@ -44,6 +44,7 @@ class DockDeskConfig:
     
     # Core settings
     workspace: str = "."
+    provider: str = "ollama"
     model: str = "qwen2.5-coder:7b"
     detect_model: str = ""   # Phase 1 detection model (empty = use 'model') [DEPRECATED: use reasoning_model]
     fix_model: str = ""      # Phase 2 fix-generation model (empty = use 'model') [DEPRECATED: use reasoning_model]
@@ -95,6 +96,7 @@ class DockDeskConfig:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "workspace": self.workspace,
+            "provider": self.provider,
             "model": self.model,
             "detect_model": self.detect_model,
             "fix_model": self.fix_model,

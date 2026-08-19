@@ -1,0 +1,1 @@
+Payment gateway. Supports processing payments via Stripe API.

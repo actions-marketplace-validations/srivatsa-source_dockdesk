@@ -30,8 +30,7 @@ def create_audit_graph():
     workflow.add_edge("integrity", "retrieval")
     workflow.add_edge("retrieval", "code_analysis")
     workflow.add_edge("code_analysis", "reasoning")
-    workflow.add_edge("reasoning", "accountability")
-    workflow.add_edge("accountability", "report")
+    workflow.add_edge("reasoning", "report")
     workflow.add_edge("report", "notify")
     workflow.add_edge("notify", END)
     

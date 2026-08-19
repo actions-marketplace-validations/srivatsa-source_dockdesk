@@ -1565,6 +1565,13 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
                 "stats": {"total_nodes": 0, "total_edges": 0, "file_nodes": 0, "directory_nodes": 0, "doc_nodes": 0, "source_nodes": 0, "config_nodes": 0, "entry_points": []},
             }
 
+        # Include current workspace config for the Settings panel
+        try:
+            from .config import load_config_file
+            data["current_config"] = load_config_file(workspace)
+        except Exception:
+            data["current_config"] = {}
+
         # Write to both workspace root and dashboard/public for dev server
         for dest in [
             os.path.join(workspace, "dashboard_data.json"),

@@ -1,4 +1,4 @@
-# DockDesk v3.1.3
+# DockDesk v3.2.0
 
 **Local-First Semantic Documentation Auditor**
 
@@ -48,6 +48,14 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 | **Infrastructure Cost** | No API credits. Efficient SLMs run on standard hardware. |
 
 ---
+
+## What's New in v3.2.0
+
+| Feature | Description |
+|---------|-------------|
+| **Dashboard Settings Panel** | Manage audit configuration (`dockdesk.yml`) and auto-tune/turbo flags directly from a new settings page in the React dashboard. |
+| **In-Dashboard Model Pulling** | Select any audit-suitable model and instantly pull it locally via Ollama without leaving the dashboard UI. |
+| **Sequential Knowledge Graph** | Replaced the cluttered radial graph with a VS Code-style collapsible directory tree, complete with search, entry point quick-nav, and a mini-graph for selected node connections. |
 
 ## What's New in v3.0.0
 

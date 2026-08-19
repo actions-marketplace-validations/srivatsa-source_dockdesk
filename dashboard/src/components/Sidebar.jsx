@@ -1,4 +1,4 @@
-import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle, AlertTriangle, Users, Link2, Workflow } from 'lucide-react'
+import { BarChart3, FileSearch, Activity, Shield, Cpu, Clock, ChevronLeft, ChevronRight, GitBranch, FileSpreadsheet, MessageCircle, AlertTriangle, Users, Link2, Workflow, Network, Settings } from 'lucide-react'
 
 const NAV_SECTIONS = [
   {
@@ -6,6 +6,7 @@ const NAV_SECTIONS = [
     items: [
       { id: 'overview', icon: BarChart3, label: 'Overview' },
       { id: 'tree', icon: GitBranch, label: 'Audit Tree' },
+      { id: 'knowledge-graph', icon: Network, label: 'Knowledge Graph' },
       { id: 'files', icon: FileSearch, label: 'File Results' },
       { id: 'safety', icon: Shield, label: 'Push Safety' },
     ],
@@ -27,6 +28,7 @@ const NAV_SECTIONS = [
       { id: 'runs', icon: Clock, label: 'Recent Runs' },
       { id: 'reports', icon: FileSpreadsheet, label: 'Reports' },
       { id: 'discord', icon: MessageCircle, label: 'Discord' },
+      { id: 'settings', icon: Settings, label: 'Settings' },
     ],
   },
 ]

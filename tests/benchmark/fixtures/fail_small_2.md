@@ -1,0 +1,1 @@
+Reads from `APP_SECRET` env.

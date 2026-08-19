@@ -1,0 +1,1 @@
+Adds 3 numbers.

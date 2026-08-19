@@ -26,5 +26,201 @@
     "content_hash": "e6ae6fbe08288b028eaa9bb9cf5c5247124a8b0287e63f3152a705be04783949",
     "previous_hash": "3129336d3e5192fd8b650340586a17226522e80dbd9825db02e59401d9b717ed",
     "chain_hash": "445abd0c7fb42fdd60b0bc18a5430df5dc04218564c7081f9374b9263f812bd6"
+  },
+  {
+    "run_id": "run_20260506100153_aef82c",
+    "timestamp": "2026-05-06T05:54:21Z",
+    "workspace": "dockdesk",
+    "files_audited": 2,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 2
+    },
+    "content_hash": "f7a466b0ccdd635c526f9a9072da7e2c4c657335bf414b5a135add02d9e66bf0",
+    "previous_hash": "445abd0c7fb42fdd60b0bc18a5430df5dc04218564c7081f9374b9263f812bd6",
+    "chain_hash": "7b3051c7ab7ed081df847cc39f4cd2fc01af95ce156d8c882dc1a3e3959480ee"
+  },
+  {
+    "run_id": "run_20260506100153_aef82c",
+    "timestamp": "2026-05-24T14:24:20Z",
+    "workspace": "dockdesk",
+    "files_audited": 2,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 2
+    },
+    "content_hash": "1f6eb940fa74403ac954fa584ca766d425f9ed59941e6d2d7d9a3e9321e9fd47",
+    "previous_hash": "7b3051c7ab7ed081df847cc39f4cd2fc01af95ce156d8c882dc1a3e3959480ee",
+    "chain_hash": "fd3869d3cc7dcf737bdf18657e92f17f9716fb851b3d8b80e7ea68ce9480d125"
+  },
+  {
+    "run_id": "dd-d9dacede78ec",
+    "timestamp": "2026-05-24T14:25:01Z",
+    "workspace": "dockdesk",
+    "files_audited": 1,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 1
+    },
+    "content_hash": "da8f9626f23662aae6b977b622ba3fa77ce25e670fc3b841950c4391feda4882",
+    "previous_hash": "fd3869d3cc7dcf737bdf18657e92f17f9716fb851b3d8b80e7ea68ce9480d125",
+    "chain_hash": "a696682a3fef09a609f4fc0026ce05d51f70a30961b573e4c8ff796620859037"
+  },
+  {
+    "run_id": "run_20260506100153_aef82c",
+    "timestamp": "2026-05-24T14:25:01Z",
+    "workspace": "dockdesk",
+    "files_audited": 2,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 2
+    },
+    "content_hash": "1f6eb940fa74403ac954fa584ca766d425f9ed59941e6d2d7d9a3e9321e9fd47",
+    "previous_hash": "a696682a3fef09a609f4fc0026ce05d51f70a30961b573e4c8ff796620859037",
+    "chain_hash": "e7694e49464bf1daeca938755bd769f40a0eda883b84ed2fb7b707f669b082a9"
+  },
+  {
+    "run_id": "run_20260524195457_632641",
+    "timestamp": "2026-05-24T14:25:06Z",
+    "workspace": "dockdesk",
+    "files_audited": 1,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 1
+    },
+    "content_hash": "830a88d977842fc9426b12507813e566d187527a9cdcff98b46433801b4faecf",
+    "previous_hash": "e7694e49464bf1daeca938755bd769f40a0eda883b84ed2fb7b707f669b082a9",
+    "chain_hash": "fa5b360a12e325d09b76d583433a80d0a11bc4433094c38a192a498a5c44fc3c"
+  },
+  {
+    "run_id": "run_20260524195457_632641",
+    "timestamp": "2026-08-14T08:06:14Z",
+    "workspace": "dockdesk",
+    "files_audited": 1,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 1
+    },
+    "content_hash": "830a88d977842fc9426b12507813e566d187527a9cdcff98b46433801b4faecf",
+    "previous_hash": "fa5b360a12e325d09b76d583433a80d0a11bc4433094c38a192a498a5c44fc3c",
+    "chain_hash": "9f33dcd200446669a1a6acc1ea32a330ba522dda0ff6e3ec9d4a4f0a679ae3e6"
+  },
+  {
+    "run_id": "run_20260814133040_0d9a2e",
+    "timestamp": "2026-08-14T09:12:38Z",
+    "workspace": "dockdesk",
+    "files_audited": 15,
+    "risk_distribution": {
+      "HIGH": 3,
+      "MEDIUM": 4,
+      "LOW": 8
+    },
+    "content_hash": "c84883779526a907d0f5f9a33d0dc013763aa0357ce75945290d50be854e523f",
+    "previous_hash": "9f33dcd200446669a1a6acc1ea32a330ba522dda0ff6e3ec9d4a4f0a679ae3e6",
+    "chain_hash": "ecb6a8af8e39198dc2ff9b464b6c52a491589631b67c8ce5eddad43c99c1aa87"
+  },
+  {
+    "run_id": "run_20260814133040_0d9a2e",
+    "timestamp": "2026-08-14T09:22:56Z",
+    "workspace": "dockdesk",
+    "files_audited": 15,
+    "risk_distribution": {
+      "HIGH": 3,
+      "MEDIUM": 4,
+      "LOW": 8
+    },
+    "content_hash": "c84883779526a907d0f5f9a33d0dc013763aa0357ce75945290d50be854e523f",
+    "previous_hash": "ecb6a8af8e39198dc2ff9b464b6c52a491589631b67c8ce5eddad43c99c1aa87",
+    "chain_hash": "ef0f242711cda89a4fdc749fb3fbae6d6a587c0464bd10669253bcea21f32b9f"
+  },
+  {
+    "run_id": "run_20260814145250_daa535",
+    "timestamp": "2026-08-14T09:44:29Z",
+    "workspace": "dockdesk",
+    "files_audited": 40,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 38
+    },
+    "content_hash": "152d843d43ef3023cce05a9e64d2f83c911d65dc21fb4e21d2cb1de11d889451",
+    "previous_hash": "ef0f242711cda89a4fdc749fb3fbae6d6a587c0464bd10669253bcea21f32b9f",
+    "chain_hash": "c91f5ca020603510e740567a0d7ef0576889240375195be28d0bff77a3b7c3d2"
+  },
+  {
+    "run_id": "run_20260814151421_33e59b",
+    "timestamp": "2026-08-14T09:45:35Z",
+    "workspace": "dockdesk",
+    "files_audited": 40,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 38
+    },
+    "content_hash": "37622aefb876c3c9217dce01d47ee85552cf88365a14e6fcf8c7a44748df9964",
+    "previous_hash": "c91f5ca020603510e740567a0d7ef0576889240375195be28d0bff77a3b7c3d2",
+    "chain_hash": "5d256ce515424dbf72c3d0f4102f8dc515cb2e78e4e5a59cb1c01b818fe0a756"
+  },
+  {
+    "run_id": "run_20260814151527_fa61e4",
+    "timestamp": "2026-08-14T09:59:01Z",
+    "workspace": "dockdesk",
+    "files_audited": 10,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 10
+    },
+    "content_hash": "f5ccf1357589d007ceb84e041464a3f37c6ee852f8ddf5214a4beda8cd888e3e",
+    "previous_hash": "5d256ce515424dbf72c3d0f4102f8dc515cb2e78e4e5a59cb1c01b818fe0a756",
+    "chain_hash": "37244999ad8bd02527af0e24b332876035bc9278f582d0bd58768e7ef6499eac"
+  },
+  {
+    "run_id": "run_20260814152858_60a65b",
+    "timestamp": "2026-08-18T16:04:45Z",
+    "workspace": "dockdesk",
+    "files_audited": 40,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 38
+    },
+    "content_hash": "54c278d615eca5e04852158acd66b84e11bba5abfbfdfd6b9735f5c71da9d2a0",
+    "previous_hash": "37244999ad8bd02527af0e24b332876035bc9278f582d0bd58768e7ef6499eac",
+    "chain_hash": "ac09224a8004a4e56ff08dc7244dd7ed6e8607dc537fb7a08d50558573369f44"
+  },
+  {
+    "run_id": "run_20260818213439_529710",
+    "timestamp": "2026-08-19T07:58:03Z",
+    "workspace": "dockdesk",
+    "files_audited": 1,
+    "risk_distribution": {
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 1
+    },
+    "content_hash": "b022757ee39a0bba82d6abab34b8ce919e2b0152962e034b71720a4d416eeb7c",
+    "previous_hash": "ac09224a8004a4e56ff08dc7244dd7ed6e8607dc537fb7a08d50558573369f44",
+    "chain_hash": "e2d6762e45abbb877ed108ce816e617d6c6727fc169a247bf34ac9c389c41246"
+  },
+  {
+    "run_id": "run_20260819132535_a3f40b",
+    "timestamp": "2026-08-19T08:10:55Z",
+    "workspace": "dockdesk",
+    "files_audited": 40,
+    "risk_distribution": {
+      "HIGH": 13,
+      "MEDIUM": 1,
+      "LOW": 26
+    },
+    "content_hash": "2c87e612d9aa0735bd1683e90d23aabe145227f480816a3733ad1b3bfd518c43",
+    "previous_hash": "e2d6762e45abbb877ed108ce816e617d6c6727fc169a247bf34ac9c389c41246",
+    "chain_hash": "201ea83424089c11fc7f928b2cca3299b317e0f35fe7cc359b0f222502cee31d"
   }
 ]

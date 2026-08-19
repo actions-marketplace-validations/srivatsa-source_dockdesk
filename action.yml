@@ -1,5 +1,5 @@
 name: 'DockDesk Neural Auditor'
-description: 'Local-first semantic audit of code vs documentation using Ollama. Auto-tunes model selection for your codebase.'
+description: 'Local-first semantic audit of code vs documentation using Ollama, with repository knowledge graph exports for LLM-aware context.'
 author: 'DockDesk Team'
 branding:
   icon: 'shield'
@@ -94,6 +94,21 @@ inputs:
     required: false
     default: '3.11'
 
+  knowledge_graph:
+    description: 'Generate a repository knowledge graph artifact after the audit run'
+    required: false
+    default: 'true'
+
+  knowledge_graph_output:
+    description: 'Path to the generated knowledge graph JSON file'
+    required: false
+    default: 'knowledge_graph.json'
+
+  knowledge_graph_markdown:
+    description: 'Path to the generated knowledge graph Markdown summary'
+    required: false
+    default: 'knowledge_graph.md'
+
 outputs:
   report_path:
     description: 'Path to the generated audit report'
@@ -113,6 +128,9 @@ outputs:
   sarif_path:
     description: 'Path to SARIF report (for GitHub Code Scanning integration)'
     value: ${{ steps.audit.outputs.sarif_path }}
+  knowledge_graph_path:
+    description: 'Path to the generated knowledge graph JSON artifact'
+    value: ${{ steps.knowledge-graph.outputs.knowledge_graph_path }}
 
 runs:
   using: 'composite'
@@ -272,6 +290,8 @@ runs:
           ${{ inputs.workspace_path }}/audit_report.md
           ${{ inputs.workspace_path }}/dashboard_data.json
           ${{ inputs.workspace_path }}/audit_history.jsonl
+          ${{ inputs.workspace_path }}/${{ inputs.knowledge_graph_output }}
+          ${{ inputs.workspace_path }}/${{ inputs.knowledge_graph_markdown }}
         retention-days: 30
 
     - name: Upload SARIF to GitHub Code Scanning
@@ -281,6 +301,24 @@ runs:
         sarif_file: ${{ steps.audit.outputs.sarif_path }}
         category: dockdesk-audit
       continue-on-error: true
+
+    - name: Generate Knowledge Graph
+      if: always() && inputs.knowledge_graph == 'true'
+      id: knowledge-graph
+      shell: bash
+      run: |
+        WS="${{ inputs.workspace_path }}"
+        KG_JSON="${WS}/${{ inputs.knowledge_graph_output }}"
+        KG_MD="${WS}/${{ inputs.knowledge_graph_markdown }}"
+
+        dockdesk knowledge-graph \
+          --workspace "${WS}" \
+          --output "${KG_JSON}" \
+          --markdown "${KG_MD}"
+
+        if [ -f "${KG_JSON}" ]; then
+          echo "knowledge_graph_path=${KG_JSON}" >> $GITHUB_OUTPUT
+        fi
 
     - name: Post PR Comment
       if: github.event_name == 'pull_request' && always()

@@ -176,168 +176,52 @@ def _render_project_table(projects: list[tuple[Path, str]], base_dir: Path) -> N
     console.print(table)
 
 
-def _browse_for_workspace(start_dir: Path, *, enter_on_select: bool = True) -> Path | None:
-    """Phenomenal interactive folder browser using Rich Live and keyboard navigation."""
-    from rich.live import Live
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.text import Text
-    import time
-    
+def _browse_for_workspace(start_dir: Path) -> Path | None:
+    """Simple folder picker that works in plain terminals."""
     current = start_dir.resolve()
-    selected_idx = 0
-    
-    # ── Cross-Platform Non-Blocking Key Reader ──
-    if os.name == "nt":
-        import msvcrt
-        def read_key() -> str:
-            if msvcrt.kbhit():
-                ch = msvcrt.getch()
-                if ch in (b'\x00', b'\xe0'):
-                    ch2 = msvcrt.getch()
-                    if ch2 == b'H': return 'up'
-                    if ch2 == b'P': return 'down'
-                    return ''
-                if ch == b'\r': return 'enter'
-                if ch == b'\n': return 'shift-enter'  # Shift+Enter registers as \n in Windows consoles
-                if ch == b'\x1b': return 'esc'
-                try:
-                    c = ch.decode('utf-8', errors='ignore')
-                except Exception:
-                    return ''
-                return c
-            return ''
-    else:
-        import tty, termios, select
-        _old_settings = None
-        def _init_tty():
-            nonlocal _old_settings
-            _old_settings = termios.tcgetattr(sys.stdin)
-            tty.setcbreak(sys.stdin.fileno())
-        def _restore_tty():
-            if _old_settings:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _old_settings)
 
-        def read_key() -> str:
-            if select.select([sys.stdin], [], [], 0.05)[0]:
-                ch = sys.stdin.read(1)
-                if ch == '\x1b':
-                    if select.select([sys.stdin], [], [], 0.02)[0]:
-                        ch2 = sys.stdin.read(1)
-                        if ch2 == '[':
-                            ch3 = sys.stdin.read(1)
-                            if ch3 == 'A': return 'up'
-                            if ch3 == 'B': return 'down'
-                    return 'esc'
-                if ch in ('\r', '\n'):
-                    return 'enter'
-                return ch
-            return ''
+    while True:
+        console.print(Panel(
+            f"[bold #DA70D6]Folder Browser[/bold #DA70D6]\n"
+            f"[white]Current:[/white] [#FF69B4]{current}[/#FF69B4]\n"
+            "[dim]Type a number to enter folder, '..' for parent, '.' to select this folder, 'q' to cancel.[/dim]",
+            border_style="#8A2BE2"
+        ))
 
-    if os.name != "nt":
-        _init_tty()
-
-    try:
         dirs: list[Path] = []
-        
-        def refresh_dirs():
-            nonlocal dirs, selected_idx
-            try:
-                all_entries = sorted(
-                    [p for p in current.iterdir() if not p.name.startswith(".")],
-                    key=lambda p: (not p.is_dir(), p.name.lower())
-                )
-                dirs = all_entries
-            except (PermissionError, OSError):
-                dirs = []
-            selected_idx = min(selected_idx, max(0, len(dirs)))
-
-        refresh_dirs()
-
-        def make_panel() -> Panel:
-            table = Table(box=None, show_header=False, expand=True)
-            table.add_column("Pointer", width=2, style="bold #FF1493")
-            table.add_column("Type", width=8)
-            table.add_column("Name", style="#FF69B4")
-
-            parent_selected = (selected_idx == 0)
-            ptr = "▸" if parent_selected else " "
-            p_style = "bold #FF1493" if parent_selected else "dim"
-            row_style = "on #13132B" if parent_selected else ""
-            table.add_row(
-                Text(ptr, style=p_style),
-                Text("[DIR]", style="bold #8A2BE2"),
-                Text(".. (parent folder)", style="bold #DA70D6" if parent_selected else "#DA70D6"),
-                style=row_style
+        try:
+            dirs = sorted(
+                [p for p in current.iterdir() if p.is_dir() and not p.name.startswith(".")],
+                key=lambda p: p.name.lower()
             )
+        except (PermissionError, OSError):
+            console.print("[bold red][-] Cannot read this folder.[/bold red]")
 
-            for i, p in enumerate(dirs):
-                idx = i + 1
-                is_selected = (selected_idx == idx)
-                ptr = "▸" if is_selected else " "
-                p_style = "bold #FF1493" if is_selected else "dim"
-                row_style = "on #13132B" if is_selected else ""
-                
-                ptype = "[DIR]" if p.is_dir() else "[FILE]"
-                tstyle = "bold #8A2BE2" if p.is_dir() else "dim #DA70D6"
-                
-                table.add_row(
-                    Text(ptr, style=p_style),
-                    Text(ptype, style=tstyle),
-                    Text(p.name, style="bold #FF00FF" if is_selected else "#FF69B4"),
-                    style=row_style
-                )
+        if not dirs:
+            console.print("[yellow][*] No visible subfolders here.[/yellow]")
+        else:
+            max_show = min(len(dirs), 25)
+            for idx in range(max_show):
+                console.print(f"[#DA70D6]{idx + 1:>2}[/#DA70D6]  [#FF69B4]{dirs[idx].name}[/#FF69B4]")
+            if len(dirs) > max_show:
+                console.print(f"[dim]... and {len(dirs) - max_show} more[/dim]")
 
-            return Panel(
-                table,
-                title=Text(f" 📂 Folder & File Explorer ── {current} ", style="bold #FF1493"),
-                subtitle=Text(" [↑/↓/j/k]: Navigate  ∣  [Enter]: Open  ∣  [Shift+Enter / 's']: Start Audit  ∣  [q]: Cancel ", style="dim #DA70D6"),
-                border_style="#8A2BE2",
-                padding=(1, 2)
-            )
+        choice = Prompt.ask("[#FF00FF]browse[/#FF00FF]").strip()
 
-        with Live(make_panel(), screen=True, refresh_per_second=15) as live:
-            while True:
-                key = read_key()
-                if not key:
-                    time.sleep(0.02)
-                    continue
-
-                if key == 'q' or key == 'esc':
-                    return None
-                
-                elif key in ('j', 'down'):
-                    selected_idx = min(selected_idx + 1, len(dirs))
-                
-                elif key in ('k', 'up'):
-                    selected_idx = max(selected_idx - 1, 0)
-                
-                elif key in ('s', 'S', 'shift-enter'):
-                    if selected_idx == 0:
-                        return current
-                    else:
-                        return dirs[selected_idx - 1]
-
-                elif key == 'enter':
-                    if selected_idx == 0:
-                        current = current.parent
-                        selected_idx = 0
-                        refresh_dirs()
-                    else:
-                        target = dirs[selected_idx - 1]
-                        if target.is_dir():
-                            current = target
-                            selected_idx = 0
-                            refresh_dirs()
-                        else:
-                            return target
-                
-                live.update(make_panel())
-                time.sleep(0.01)
-
-    finally:
-        if os.name != "nt":
-            _restore_tty()
+        if choice.lower() == "q":
+            return None
+        if choice == ".":
+            return current
+        if choice == "..":
+            parent = current.parent
+            current = parent if parent != current else current
+            continue
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(dirs):
+                current = dirs[idx]
+                continue
+        console.print("[yellow][!] Invalid choice.[/yellow]")
 
 
 def _chat_interface() -> None:
@@ -373,7 +257,7 @@ def _chat_interface() -> None:
         if not choice:
             continue
 
-        intent = parse_intent(choice, pool=pool, workspace_path=workspace)
+        intent = parse_intent(choice, pool=pool)
         action = intent.get("action", "unknown")
 
         if action == "exit":
@@ -381,87 +265,16 @@ def _chat_interface() -> None:
             return
         elif action == "audit":
             target = intent.get("workspace", "current")
-            args_obj = intent.get("args", {})
-            include_from_args = args_obj.get("include")
-            has_explicit_args = bool(include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]))
-            
-            # ── Workspace Resolution ──
-            # If target is "current" (user just said "audit" with no path),
-            # skip ALL interactive prompts and use the current workspace directly.
-            if target == "current" or target == workspace:
-                target_ws = workspace
-                final_include = include_from_args
-                console.print(f"[green]⚡ Activating audit in current workspace:[/green] [#FF69B4]{workspace}[/#FF69B4]")
-            else:
-                # User specified an explicit path via NLP (e.g., "audit src/", "audit flask")
-                selected = _prompt_audit_target(
-                    current_workspace=workspace,
-                    suggested_target=target,
-                    skip_prompts=has_explicit_args
-                )
-                if selected is None:
-                    continue
-                target_ws, final_include = selected
-            
-            # ── Build Options ──
-            if has_explicit_args:
-                # NLP provided explicit flags — skip the options prompt entirely
-                include_pattern = include_from_args if include_from_args else final_include
-                
-                from dockdesk.config import build_config
-                try:
-                    base_config = build_config(target_ws)
-                    default_model = base_config.model
-                    default_reasoning = base_config.reasoning_model
-                except Exception:
-                    default_model = "qwen2.5-coder:3b"
-                    default_reasoning = "deepseek-r1:1.5b"
+            selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target)
+            if selected is None:
+                continue
 
-                is_auto_tune = args_obj.get("auto_tune", False)
-                opts = argparse.Namespace(
-                    workspace=target_ws,
-                    model=None if is_auto_tune else args_obj.get("model", default_model),
-                    detect_model=None,
-                    fix_model=None,
-                    reasoning_model=args_obj.get("reasoning_model", default_reasoning),
-                    discord_webhook=None,
-                    auto_tune=is_auto_tune,
-                    fix=args_obj.get("fix", False),
-                    fix_code=False,
-                    ci=False,
-                    verbose=False,
-                    format=args_obj.get("format", "md"),
-                    output=None,
-                    fail_on_risk="HIGH",
-                    skip_rag=args_obj.get("skip_rag", False),
-                    max_files=None,
-                    max_file_size=None,
-                    include=include_pattern,
-                    exclude=None,
-                    workers=None,
-                    ollama_urls=None,
-                    fast=args_obj.get("fast_mode", False),
-                    batch_size=None,
-                    clear_cache=None,
-                    no_gitignore=False,
-                    turbo=args_obj.get("turbo", False),
-                    keep_clone=False,
-                    rules=None,
-                    force_full_scan=None,
-                    rotate_models=False,
-                    _from_chat=True
-                )
-                
-                console.print("[green][+] NLP parsed options automatically. Starting audit...[/green]")
+            target_ws, include_pattern = selected
+            opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
+            if opts is not None:
+                # Marker used to avoid replaying startup animation inside chat-triggered audit.
+                opts._from_chat = True
                 run_audit(opts)
-            else:
-                # No explicit flags — show the quick options prompt (Y/customize)
-                # but skip the target picker since we already resolved it above
-                include_pattern = final_include
-                opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
-                if opts is not None:
-                    opts._from_chat = True
-                    run_audit(opts)
         elif action == "dashboard":
             section = intent.get("section", "summary")
             dashboard_cmd(argparse.Namespace(workspace=workspace, export=None, section=section, open=False))
@@ -470,7 +283,7 @@ def _chat_interface() -> None:
         elif action == "change_workspace":
             path = intent.get("path", "browse")
             if path == "browse":
-                picked = _browse_for_workspace(Path(workspace), enter_on_select=True)
+                picked = _browse_for_workspace(Path(workspace))
                 if picked:
                     workspace = str(picked.resolve())
             else:
@@ -487,15 +300,6 @@ def _chat_interface() -> None:
         elif action == "open_tui":
             from dockdesk.tui import launch_tui
             launch_tui(workspace)
-        elif action == "hooks":
-            sub = intent.get("sub_action", "status")
-            from dockdesk.hooks import install_hooks, uninstall_hooks, hooks_status
-            if sub == "install":
-                install_hooks(workspace)
-            elif sub == "uninstall":
-                uninstall_hooks(workspace)
-            else:
-                hooks_status(workspace)
         else:
             msg = intent.get("message", "I didn't quite get that. Try 'run audit', 'show dashboard', or 'list models'.")
             console.print(f"[yellow]{msg}[/yellow]")
@@ -508,7 +312,7 @@ def _prompt_bool(label: str, default: bool = False) -> bool:
     return value in {"y", "yes", "true", "1"}
 
 
-def _prompt_audit_target(current_workspace: str, suggested_target: str = "current", skip_prompts: bool = False) -> tuple[str, str | None] | None:
+def _prompt_audit_target(current_workspace: str, suggested_target: str = "current") -> tuple[str, str | None] | None:
     """Ask and validate audit target path (file or folder) before starting an audit.
 
     Returns:
@@ -517,220 +321,91 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
 
     current = Path(current_workspace).expanduser().resolve()
 
-    def _resolve_user_path(raw: str) -> list[Path]:
-        raw = raw.strip().strip('"').strip("'").strip("`")
-        raw = os.path.expandvars(raw)
-        raw_path = Path(raw).expanduser()
-        looks_like_path = any(sep in raw for sep in ("\\", "/")) or raw_path.drive != "" or raw.startswith(".")
-        
-        # 1. Exact Absolute
-        if raw_path.is_absolute() and raw_path.exists():
-            return [raw_path.resolve()]
-        
-        # 2. Exact Relative
-        rel_cand = (current / raw_path).resolve()
-        if rel_cand.exists():
-            return [rel_cand]
+    def _resolve_user_path(raw: str) -> Path:
+        p = Path(raw).expanduser()
+        if not p.is_absolute():
+            p = (current / p)
+        return p.resolve()
 
-        # If the user pasted a path-like value, do not invent fuzzy matches.
-        if looks_like_path:
-            return []
-        
-        # 3. Unbreakable Local Fuzzy & Substring Match
-        import difflib
-        matches = []
-        ignored_dirs = {".git", "node_modules", ".venv", ".dockdesk_cache", "dist", "build", "__pycache__"}
-        
+    # Pre-fill with NL suggestion only when it resolves to a real local path.
+    default_target = "."
+    if suggested_target and suggested_target != "current":
         try:
-            for root, dirs, files in os.walk(current):
-                # Filter in-place
-                dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-                
-                rel_depth = len(Path(root).relative_to(current).parts)
-                if rel_depth > 3:
-                    dirs[:] = []
-                    continue
-                
-                # Scan files
-                for f in files:
-                    if raw.lower() in f.lower():
-                        matches.append((1.0 if raw.lower() == f.lower() else 0.7, Path(root) / f))
-                
-                # Scan directories
-                for d in dirs:
-                    d_path = Path(root) / d
-                    d_name = d.lower()
-                    query = raw.lower()
-                    
-                    score = 0.0
-                    if query == d_name:
-                        score = 1.0
-                    elif query in d_name:
-                        score = 0.9 - (len(d_name) - len(query)) * 0.01
-                    else:
-                        score = difflib.SequenceMatcher(None, query, d_name).ratio()
-                        
-                    if score > 0.5:
-                        # Project marker boost
-                        try:
-                            markers = ["pyproject.toml", "package.json", "Cargo.toml", ".git", "requirements.txt"]
-                            if any(os.path.exists(os.path.join(d_path, m)) for m in markers):
-                                score += 0.15
-                        except Exception:
-                            pass
-                        matches.append((score, d_path))
+            cand = _resolve_user_path(suggested_target)
+            if cand.exists():
+                default_target = str(cand)
         except Exception:
             pass
-            
-        matches.sort(key=lambda x: x[0], reverse=True)
-        return [m[1] for m in matches[:5]]
 
-    def _select_from_matches(matches: list[Path], raw: str) -> Path | None:
-        if not matches:
+    console.print(Panel(
+        "[bold #FF1493]Audit Target[/bold #FF1493]\n"
+        "[dim]Choose what to audit first. You can provide a file or folder path.\n"
+        "Use '.' for current workspace, 'b' to browse folders, or 'q' to cancel.[/dim]",
+        border_style="#8A2BE2",
+    ))
+
+    while True:
+        raw = Prompt.ask("[#DA70D6]Path to audit (file/folder)[/#DA70D6]", default=default_target).strip()
+
+        if raw.lower() == "q":
             return None
-        if len(matches) == 1 or skip_prompts:
-            if not skip_prompts:
-                console.print(f"[green]🤖 I found exactly what you meant:[/green] {matches[0]}")
-            return matches[0]
+        if raw.lower() == "b":
+            picked = _browse_for_workspace(current)
+            if not picked:
+                continue
+            return str(picked.resolve()), None
+        if raw == ".":
+            return str(current), None
 
-        console.print(f"\n[green]🤖 I found these as matches for '{raw}', which one do you want to audit?[/green]")
-        for idx, match in enumerate(matches, 1):
-            console.print(f"[#DA70D6]{idx}[/#DA70D6] [#FF69B4]{match}[/#FF69B4]")
-            
-        while True:
-            choice = Prompt.ask(f"[#FF00FF]Select a target (1-{len(matches)}) or 'q' to cancel[/#FF00FF]").strip()
-            if choice.lower() == 'q':
-                return None
-            if choice.isdigit():
-                idx = int(choice)
-                if 1 <= idx <= len(matches):
-                    return matches[idx - 1]
-            console.print("[yellow][!] Invalid choice.[/yellow]")
+        try:
+            target = _resolve_user_path(raw)
+        except Exception:
+            console.print("[yellow][!] Invalid path format. Try again.[/yellow]")
+            continue
 
-    # Check the initial suggestion first. If successfully resolved & chosen, skip the default prompt entirely.
-    if suggested_target and suggested_target != "current":
-        matches = _resolve_user_path(suggested_target)
-        target = _select_from_matches(matches, suggested_target)
-        if target:
-            if target.is_file():
-                ws = target.parent.resolve()
-                include = target.name
-                if not skip_prompts:
-                    console.print(f"[green]🤖 Auditing individual file:[/green] {target}")
-                return str(ws), include
+        if not target.exists():
+            console.print(f"[bold red][-] Path not found: {target}[/bold red]")
+            continue
 
-            if target.is_dir():
-                console.print(f"[green]🤖 Auditing folder:[/green] {target}")
-                return str(target.resolve()), None
-    elif skip_prompts:
-        return str(current), None
+        if target.is_file():
+            ws = target.parent.resolve()
+            include = target.name
+            console.print(f"[green][+] Auditing file:[/green] {target}")
+            return str(ws), include
 
-    # If no suggestion matched anything, default to the current workspace
-    # instead of forcing the user through an interactive file browser.
-    # The user already cd'd here — respect that.
-    console.print(f"[green]⚡ Using current workspace:[/green] [#FF69B4]{current}[/#FF69B4]")
-    return str(current), None
+        if target.is_dir():
+            console.print(f"[green][+] Auditing folder:[/green] {target}")
+            return str(target.resolve()), None
+
+        console.print("[yellow][!] Unsupported target type. Choose a file or folder.[/yellow]")
 
 
 def _interactive_audit_options(workspace: str, include_pattern: str | None = None) -> argparse.Namespace | None:
     """Collect quick audit options from interactive mode."""
-    from dockdesk.config import build_config
-    try:
-        base_config = build_config(workspace)
-        default_model = base_config.model
-        default_reasoning_model = base_config.reasoning_model
-        default_out_format = base_config.output_format.value
-        default_auto_tune = getattr(base_config, 'auto_tune', False)
-        default_skip_rag = getattr(base_config, 'skip_rag', False)
-        default_fast_mode = getattr(base_config, 'fast_mode', False)
-        default_rotate_models = getattr(base_config, 'rotate_models', False)
-        default_turbo = getattr(base_config, 'turbo', False)
-    except Exception:
-        default_model = "qwen2.5-coder:3b"
-        default_reasoning_model = "deepseek-r1:1.5b"
-        default_out_format = "md"
-        default_auto_tune = False
-        default_skip_rag = False
-        default_fast_mode = False
-        default_rotate_models = False
-        default_turbo = False
-
     console.print(Panel(
         "[bold #FF1493]Quick Audit Options[/bold #FF1493]\n"
-        "[dim]Press Enter to accept standard settings (Fast, Auto-tuned, Cache enabled),\n"
-        "or type 'c' to customize options manually.[/dim]",
+        "[dim]Press Enter to accept defaults. Type 'q' to cancel and return.[/dim]",
         border_style="#8A2BE2"
     ))
 
-    choice = Prompt.ask("[#DA70D6]Use standard recommended settings? (Y/c)[/#DA70D6]", default="y").strip().lower()
-    if choice == 'q':
-        return None
-    if choice != 'c':
-        # Fast-track path: return argparse namespace with recommended defaults
-        return argparse.Namespace(
-            workspace=workspace,
-            model=None,
-            detect_model=None,
-            fix_model=None,
-            reasoning_model=default_reasoning_model,
-            discord_webhook=None,
-            auto_tune=True,
-            fix=False,
-            fix_code=False,
-            ci=False,
-            verbose=False,
-            format=default_out_format,
-            output=None,
-            fail_on_risk="HIGH",
-            skip_rag=True,
-            max_files=None,
-            max_file_size=None,
-            include=include_pattern,
-            exclude=None,
-            workers=None,
-            ollama_urls=None,
-            fast=True,
-            batch_size=None,
-            clear_cache=None,
-            no_gitignore=False,
-            turbo=True,
-            keep_clone=False,
-            rules=None,
-            force_full_scan=None,
-            rotate_models=False,
-        )
-
-    model = Prompt.ask("[#DA70D6]Code model[/#DA70D6]", default=default_model).strip()
+    model = Prompt.ask("[#DA70D6]Code model[/#DA70D6]", default="qwen2.5-coder:7b").strip()
     if model.lower() == "q":
         return None
 
-    auto_tune = _prompt_bool("[#DA70D6]Auto-tune model by LOC?[/#DA70D6]", default=default_auto_tune)
-    reasoning_model = Prompt.ask("[#DA70D6]Reasoning model[/#DA70D6]", default=default_reasoning_model).strip()
-    out_format = Prompt.ask("[#DA70D6]Output format (md/json/sarif)[/#DA70D6]", default=default_out_format).strip().lower()
+    auto_tune = _prompt_bool("[#DA70D6]Auto-tune model by LOC?[/#DA70D6]", default=False)
+    reasoning_model = Prompt.ask("[#DA70D6]Reasoning model[/#DA70D6]", default="deepseek-r1:1.5b").strip()
+    out_format = Prompt.ask("[#DA70D6]Output format (md/json/sarif)[/#DA70D6]", default="md").strip().lower()
     if out_format not in {"md", "json", "sarif"}:
         console.print("[yellow][!] Invalid format, using md.[/yellow]")
         out_format = "md"
 
-    skip_rag = _prompt_bool("[#DA70D6]Skip RAG for speed?[/#DA70D6]", default=default_skip_rag)
-    fast_mode = _prompt_bool("[#DA70D6]Enable fast mode?[/#DA70D6]", default=default_fast_mode)
-    rotate_models = _prompt_bool("[#DA70D6]Rotate code models per file?[/#DA70D6]", default=default_rotate_models)
-    turbo = _prompt_bool("[#DA70D6]Enable turbo mode?[/#DA70D6]", default=default_turbo)
+    skip_rag = _prompt_bool("[#DA70D6]Skip RAG for speed?[/#DA70D6]", default=False)
+    fast_mode = _prompt_bool("[#DA70D6]Enable fast mode?[/#DA70D6]", default=False)
+    rotate_models = _prompt_bool("[#DA70D6]Rotate code models per file?[/#DA70D6]", default=False)
+    turbo = _prompt_bool("[#DA70D6]Enable turbo mode?[/#DA70D6]", default=False)
     apply_fixes = _prompt_bool("[#DA70D6]Apply documentation fixes?[/#DA70D6]", default=False)
     fix_code = _prompt_bool("[#DA70D6]Also allow code fixes?[/#DA70D6]", default=False) if apply_fixes else False
     verbose = _prompt_bool("[#DA70D6]Verbose output?[/#DA70D6]", default=False)
-
-    save_config = Prompt.ask("[#DA70D6]Save these settings to dockdesk.yml? (y/n)[/#DA70D6]", default="y").strip().lower()
-    if save_config == 'y':
-        config_path = os.path.join(workspace, "dockdesk.yml")
-        try:
-            import yaml
-            # Simple fallback format if no yaml module
-            yaml_content = f"model: {model}\nreasoning_model: {reasoning_model}\noutput_format: {out_format}\nauto_tune: {str(auto_tune).lower()}\nskip_rag: {str(skip_rag).lower()}\nfast_mode: {str(fast_mode).lower()}\nrotate_models: {str(rotate_models).lower()}\nturbo: {str(turbo).lower()}\n"
-            with open(config_path, 'w') as f:
-                f.write(yaml_content)
-            console.print(f"[green][+] Saved config to {config_path}[/green]")
-        except Exception as e:
-            console.print(f"[red][!] Failed to save configuration: {e}[/red]")
 
     return argparse.Namespace(
         workspace=workspace,
@@ -876,7 +551,7 @@ def run_audit(args):
     # Model selection
     model = config.model
     model_tier = "unknown"
-    # Defer LOC counting - will be done lazily or after discovery
+    # Defer LOC counting — will be done lazily or after discovery
     total_loc = 0
 
     # Resolve reasoning model
@@ -901,7 +576,7 @@ def run_audit(args):
         console.print(f"[white][>] Auto-tuned model: {model} ({reason})[/white]")
         model_info = get_model_info(model)
         model_tier = model_info.tier.value if model_info else "unknown"
-        # LOC is counted inside auto_select_model - retrieve it once
+        # LOC is counted inside auto_select_model — retrieve it once
         total_loc = count_lines_of_code(workspace)
     else:
         is_valid, message = validate_model(model, strict=False)
@@ -933,10 +608,6 @@ def run_audit(args):
         risk_thres=config.fail_on_risk.name
     )
 
-    from dockdesk.rag import HAS_RAG_DEPS
-    if not config.skip_rag and not HAS_RAG_DEPS:
-        console.print("[bold yellow][!] RAG Warning:[/bold yellow] RAG dependencies (chromadb, sentence_transformers) are not installed. Contextual search will be bypassed.")
-
     if getattr(config, "rotate_models", False):
         available = [m for m in get_available_ollama_models() if is_model_audit_suitable(m)]
         if available:
@@ -947,20 +618,6 @@ def run_audit(args):
             console.print("[dim]  Rotation: requested but no local audit-suitable models were found[/dim]")
 
     changelog = ChangelogWriter(workspace, config.changelog_file) if config.enable_changelog else None
-
-    # Check Ollama health
-    import requests
-    ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    if getattr(config, "ollama_urls", None):
-        ollama_url = config.ollama_urls[0]
-    try:
-        requests.get(f"{ollama_url}/api/tags", timeout=3).raise_for_status()
-    except Exception as e:
-        console.print(f"\n[bold red][-] Ollama Health Check Failed:[/bold red] Could not connect to {ollama_url}")
-        console.print(f"[red]Error:[/red] [dim]{e}[/dim]")
-        console.print("[yellow]Is Ollama running? Try starting it with 'ollama serve'.[/yellow] \n")
-        return 1
-
     app = create_audit_graph()
 
     initial_state = {
@@ -983,8 +640,7 @@ def run_audit(args):
     }
 
     try:
-        with console.status("[bold cyan]Models warming up & auditing codebase...[/bold cyan]", spinner="dots"):
-            result = app.invoke(initial_state)
+        result = app.invoke(initial_state)
         audit_results = result.get("audit_results", [])
 
         fix_results = None
@@ -1084,7 +740,6 @@ def run_audit(args):
 
 def generate_sarif(audit_results: list, workspace: str) -> dict:
     """Generate SARIF format output for IDE integration."""
-    from dockdesk import __version__
     results = []
 
     for r in audit_results:
@@ -1124,7 +779,7 @@ def generate_sarif(audit_results: list, workspace: str) -> dict:
             "tool": {
                 "driver": {
                     "name": "DockDesk",
-                    "version": __version__,
+                    "version": "2.1.0",
                     "informationUri": "https://github.com/dockdesk/auditor",
                     "rules": [{
                         "id": "dockdesk/semantic-drift",
@@ -1147,9 +802,21 @@ def list_models_cmd(args):
 
 
 def init_config_cmd(args):
-    """Initialize a configuration file interactively."""
-    _interactive_audit_options(args.workspace)
-    console.print(f"[white][+] Finished configuration init.[/white]")
+    """Initialize a sample configuration file."""
+    from dockdesk.config import create_sample_config
+
+    config_content = create_sample_config(args.workspace, format="yaml")
+    config_path = os.path.join(args.workspace, "dockdesk.yml")
+
+    if os.path.exists(config_path) and not args.force:
+        console.print(f"[white][!] Config already exists: {config_path}[/white]")
+        console.print("Use --force to overwrite")
+        return
+
+    with open(config_path, 'w') as f:
+        f.write(config_content)
+
+    console.print(f"[white][+] Created config: {config_path}[/white]")
     console.print("[dim]Tip: Run 'dockdesk setup' to install Ollama and pull recommended models.[/dim]")
 
 
@@ -1185,170 +852,6 @@ def discord_bot_cmd(args):
     run_discord_bot(workspace=workspace, token=token, guild_id=guild_id)
 
 
-def _start_config_sidecar(workspace: str, port: int = 3001):
-    """Start a lightweight HTTP server for dashboard config read/write."""
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import threading
-
-    config_files = ["dockdesk.yml", "dockdesk.yaml", "dockdesk.json"]
-
-    class ConfigHandler(BaseHTTPRequestHandler):
-        def log_message(self, format, *args):
-            pass  # Suppress request logs
-
-        def _set_cors_headers(self):
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-        def do_OPTIONS(self):
-            self.send_response(204)
-            self._set_cors_headers()
-            self.end_headers()
-
-        def do_GET(self):
-            if self.path == "/api/config":
-                try:
-                    from dockdesk.config import load_config_file
-                    cfg = load_config_file(workspace)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps(cfg).encode())
-                except Exception as e:
-                    self.send_response(500)
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode())
-                return
-
-            if self.path == "/api/models":
-                try:
-                    from dockdesk.models import get_available_ollama_models
-                    models = get_available_ollama_models()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"models": models}).encode())
-                except Exception as e:
-                    self.send_response(500)
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode())
-                return
-
-            self.send_response(404)
-            self._set_cors_headers()
-            self.end_headers()
-
-        def do_POST(self):
-            if self.path == "/api/config":
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                    body = self.rfile.read(content_length)
-                    new_config = json.loads(body)
-
-                    # Write as YAML
-                    yaml_lines = ["# DockDesk Configuration", "# Updated from Dashboard Settings\n"]
-                    yaml_keys = [
-                        "model", "reasoning_model", "output_format", "fail_on_risk",
-                        "temperature", "auto_tune", "auto_fix", "fix_code", "skip_rag",
-                        "fast_mode", "rotate_models", "turbo", "verbose", "batch_size",
-                        "max_files", "timeout_per_file", "include_patterns", "exclude_patterns",
-                    ]
-                    for key in yaml_keys:
-                        if key in new_config:
-                            val = new_config[key]
-                            if isinstance(val, bool):
-                                yaml_lines.append(f"{key}: {'true' if val else 'false'}")
-                            elif val is not None and val != "":
-                                yaml_lines.append(f"{key}: {val}")
-
-                    # Handle custom_rules list
-                    rules = new_config.get("custom_rules", [])
-                    if rules:
-                        yaml_lines.append("custom_rules:")
-                        for rule in rules:
-                            yaml_lines.append(f'  - "{rule}"')
-
-                    config_path = os.path.join(workspace, "dockdesk.yml")
-                    with open(config_path, "w", encoding="utf-8") as f:
-                        f.write("\n".join(yaml_lines) + "\n")
-
-                    # Also update the dashboard_data.json with new config
-                    for data_path in [
-                        os.path.join(workspace, "dashboard_data.json"),
-                        os.path.join(workspace, "dashboard", "public", "dashboard_data.json"),
-                    ]:
-                        try:
-                            if os.path.exists(data_path):
-                                with open(data_path, "r", encoding="utf-8") as f:
-                                    data = json.load(f)
-                                data["current_config"] = new_config
-                                with open(data_path, "w", encoding="utf-8") as f:
-                                    json.dump(data, f, indent=2, default=str)
-                        except Exception:
-                            pass
-
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"status": "saved", "path": config_path}).encode())
-                except Exception as e:
-                    self.send_response(500)
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode())
-                return
-
-            if self.path == "/api/models/pull":
-                try:
-                    content_length = int(self.headers.get("Content-Length", 0))
-                    body = self.rfile.read(content_length)
-                    data = json.loads(body)
-                    model_name = data.get("model")
-                    
-                    if not model_name:
-                        self.send_response(400)
-                        self._set_cors_headers()
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"error": "Model name required"}).encode())
-                        return
-
-                    # Trigger ollama pull
-                    import subprocess
-                    result = subprocess.run(["ollama", "pull", model_name], capture_output=True, text=True)
-                    if result.returncode == 0:
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/json")
-                        self._set_cors_headers()
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"status": "success", "model": model_name}).encode())
-                    else:
-                        self.send_response(500)
-                        self._set_cors_headers()
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"error": f"Failed to pull model: {result.stderr}"}).encode())
-                except Exception as e:
-                    self.send_response(500)
-                    self._set_cors_headers()
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode())
-                return
-
-            self.send_response(404)
-            self._set_cors_headers()
-            self.end_headers()
-
-    server = HTTPServer(("127.0.0.1", port), ConfigHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    return server
-
-
 def open_react_dashboard_cmd(args):
     """Export data and open the React dashboard."""
     workspace = os.path.abspath(args.workspace)
@@ -1362,82 +865,32 @@ def open_react_dashboard_cmd(args):
     # Export audit data if history exists
     os.makedirs(public_dir, exist_ok=True)
     if os.path.exists(history):
-        console.print("[white]Exporting audit data...[/white]")
+        console.print("[white]📊 Exporting audit data...[/white]")
         # Export logic internally
         dashboard_cmd(argparse.Namespace(workspace=workspace, export=data_file, open=False))
-        console.print("[green]    Data exported[/green]")
+        console.print("[green]   ✓ Data exported[/green]")
     else:
-        console.print("[yellow]  No audit history yet - generating empty dashboard data.[/yellow]")
-        import json
-        # Include current_config in empty data
-        try:
-            from dockdesk.config import load_config_file
-            current_config = load_config_file(workspace)
-        except Exception:
-            current_config = {}
-        with open(data_file, "w", encoding="utf-8") as f:
-            json.dump({
-                "history": [],
-                "latest": {
-                    "metrics": {
-                        "files_analyzed": 0,
-                        "findings_count": 0,
-                        "safe_to_push": 0,
-                        "unsafe_to_push": 0
-                    },
-                    "pass_fail_distribution": {"PASS": 0, "FAIL": 0},
-                    "risk_distribution": {"HIGH": 0, "MEDIUM": 0, "LOW": 0},
-                    "models_per_file": {}
-                },
-                "accountability": {"developers": {}},
-                "current_config": current_config,
-            }, f)
+        console.print("[yellow]⚠️  No audit history yet — dashboard will show sample data[/yellow]")
 
     # Check if node is available
     npx = shutil.which("npx")
     if not npx:
-        console.print("\n[bold red]Node.js not found! Install from: https://nodejs.org[/bold red]")
+        console.print("\n[bold red]❌ Node.js not found! Install from: https://nodejs.org[/bold red]")
         return
 
     # Install deps if needed
     node_modules = os.path.join(dashboard_dir, "node_modules")
     if not os.path.exists(node_modules):
-        console.print("[white]Installing dashboard dependencies (first time only)...[/white]")
+        console.print("[white]📦 Installing dashboard dependencies (first time only)...[/white]")
         subprocess.run(["npm", "install"], cwd=dashboard_dir, capture_output=True, shell=True)
 
-    # Start config sidecar API server
-    sidecar_port = 3001
-    console.print(f"[dim]  Config API server on http://localhost:{sidecar_port}[/dim]")
-    sidecar = _start_config_sidecar(workspace, sidecar_port)
-
     # Start Vite dev server
-    console.print("[green] Starting dashboard at http://localhost:3000[/green]")
+    console.print("[green]🚀 Starting dashboard at http://localhost:3000[/green]")
     console.print("[dim]   Press Ctrl+C to stop[/dim]\n")
     try:
         subprocess.run(["npx", "vite", "--port", "3000", "--open"], cwd=dashboard_dir, shell=True)
     except KeyboardInterrupt:
-        console.print("\n\n[green] Dashboard stopped[/green]")
-    finally:
-        sidecar.shutdown()
-
-
-def _is_valid_dashboard_payload(path: str) -> bool:
-    """Return True when an existing dashboard export has useful content."""
-    try:
-        if not os.path.exists(path):
-            return False
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return False
-        stats = data.get("stats", {})
-        if stats.get("total_audits", 0) > 0:
-            return True
-        if data.get("recent_runs") or data.get("latest_run_files"):
-            return True
-        return False
-    except Exception:
-        return False
+        console.print("\n\n[green]✓ Dashboard stopped[/green]")
 
 
 def dashboard_cmd(args):
@@ -1456,21 +909,11 @@ def dashboard_cmd(args):
     reader = ChangelogReader(changelog_path)
 
     if args.export:
-        export_path = os.path.abspath(args.export)
-        
-        # Prefer the rich dashboard data generated by the primary audit process
-        enriched_data_path = os.path.join(args.workspace, "dashboard_data.json")
-        if _is_valid_dashboard_payload(enriched_data_path):
-            console.print(f"[white]Copying enriched dashboard data to {export_path}...[/white]")
-            shutil.copy2(enriched_data_path, export_path)
-            console.print(f"[green] Exported rich dashboard data: {export_path}[/green]")
-            return
-
-        # Fallback to basic export if the enriched version doesn't exist
         data = reader.export_for_dashboard()
+        export_path = args.export
         with open(export_path, 'w') as f:
             json.dump(data, f, indent=2, default=str)
-        console.print(f"[green] Exported basic dashboard data: {export_path}[/green]")
+        console.print(f"[green]✓ Exported dashboard data: {export_path}[/green]")
     else:
         section = getattr(args, 'section', 'summary')
         if section == "high_risk":
@@ -1598,10 +1041,6 @@ def main():
     from dockdesk import __version__
     import sys
 
-    # Windows rich console UnicodeEncodeError workaround
-    if sys.platform == 'win32' and sys.stdout.encoding.lower() != 'utf-8':
-        sys.stdout.reconfigure(encoding='utf-8')
-
     try:
         from dockdesk.models import get_available_ollama_models
         from dockdesk.setup import run_setup
@@ -1703,21 +1142,6 @@ Examples:
                             choices=["bash", "zsh", "fish", "auto"],
                             help="Shell type (default: auto-detect)")
 
-    # hooks subcommand
-    hooks_parser = subparsers.add_parser("hooks", help="Manage git pre-push audit hooks")
-    hooks_sub = hooks_parser.add_subparsers(dest="hooks_action")
-    hooks_install = hooks_sub.add_parser("install", help="Install pre-push audit hook")
-    hooks_install.add_argument("--workspace", default=".", help="Workspace path")
-    hooks_uninstall = hooks_sub.add_parser("uninstall", help="Remove pre-push audit hook")
-    hooks_uninstall.add_argument("--workspace", default=".", help="Workspace path")
-    hooks_status_p = hooks_sub.add_parser("status", help="Check hook installation status")
-    hooks_status_p.add_argument("--workspace", default=".", help="Workspace path")
-
-    # pipeline subcommand
-    pipeline_parser = subparsers.add_parser("pipeline", help="Monitor the CI/CD pipeline runs")
-    pipeline_parser.add_argument("--workspace", default=".", help="Workspace path")
-    pipeline_parser.set_defaults(func=pipeline_cmd)
-
     # Backward compat: audit args on root parser
     add_audit_args(parser)
 
@@ -1747,10 +1171,6 @@ Examples:
         launch_tui(os.path.abspath(args.workspace))
     elif args.command == "completion":
         _handle_completion_cmd(args)
-    elif args.command == "hooks":
-        _handle_hooks_cmd(args)
-    elif args.command == "pipeline":
-        pipeline_cmd(args)
     else:
         run_audit(args)
 
@@ -1767,12 +1187,12 @@ def _handle_profile_cmd(args) -> None:
         print_profile_list()
     elif action == "create":
         path = create_profile(args.name)
-        console.print(f"[green] Profile created: {path}[/green]")
+        console.print(f"[green]✓ Profile created: {path}[/green]")
     elif action == "show":
         print_profile_detail(args.name)
     elif action == "init":
         path = init_global_config()
-        console.print(f"[green] Global config: {path}[/green]")
+        console.print(f"[green]✓ Global config: {path}[/green]")
     else:
         print_profile_list()
 
@@ -1812,89 +1232,6 @@ def _handle_completion_cmd(args) -> None:
         )
     else:
         console.print(f"[yellow]Unsupported shell: {shell}[/yellow]")
-
-
-def _handle_hooks_cmd(args) -> None:
-    """Handle `dockdesk hooks` subcommands."""
-    from dockdesk.hooks import install_hooks, uninstall_hooks, hooks_status
-
-    action = getattr(args, 'hooks_action', None)
-    workspace = os.path.abspath(getattr(args, 'workspace', '.'))
-
-    if action == "install":
-        install_hooks(workspace)
-    elif action == "uninstall":
-        uninstall_hooks(workspace)
-    elif action == "status":
-        hooks_status(workspace)
-    else:
-        hooks_status(workspace)
-
-
-def pipeline_cmd(args):
-    """Handle `dockdesk pipeline` command to display CI/CD pipeline statistics and runs."""
-    from dockdesk.changelog import ChangelogReader
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.console import Console
-    
-    console = Console()
-    workspace = os.path.abspath(args.workspace)
-    history_file = os.path.join(workspace, "audit_history.jsonl")
-    
-    reader = ChangelogReader(history_file)
-    data = reader.export_for_dashboard()
-    pipeline = data.get("pipeline_monitoring", {})
-    
-    if not pipeline or pipeline.get("total_runs", 0) == 0:
-        console.print(Panel(
-            "[bold yellow]No CI/CD pipeline runs detected yet![/bold yellow]\n\n"
-            "To track pipeline runs, trigger an audit in CI mode by using the [bold]--ci[/bold] flag:\n"
-            "[cyan]dockdesk audit --ci[/cyan]",
-            border_style="yellow",
-            title="CI/CD Pipeline Monitoring"
-        ))
-        return
-        
-    total = pipeline.get("total_runs", 0)
-    rate = pipeline.get("success_rate", 100)
-    avg_dur = pipeline.get("average_duration", 0.0)
-    
-    # Styled Panel with Pipeline Health
-    rate_color = "green" if rate >= 80 else "yellow" if rate >= 50 else "red"
-    console.print(Panel(
-        f"  [bold]Total CI/CD Runs:[/bold] {total}\n"
-        f"  [bold]Overall Success Rate:[/bold] [{rate_color}]{rate}%[/{rate_color}]\n"
-        f"  [bold]Average Duration:[/bold] {avg_dur}s",
-        border_style="#8A2BE2",
-        title="[bold #FF1493]CI/CD Pipeline Health[/bold #FF1493]",
-        title_align="left"
-    ))
-    
-    # Table of Pipeline Runs
-    table = Table(title="[bold #FF69B4]Recent CI/CD Pipeline Runs[/bold #FF69B4]", border_style="#8A2BE2", title_style="bold")
-    table.add_column("Timestamp", style="dim", width=20)
-    table.add_column("Run ID", style="cyan", width=22)
-    table.add_column("Branch", style="magenta", width=12)
-    table.add_column("Commit", style="dim", width=10)
-    table.add_column("Status", width=10)
-    table.add_column("Pass / Fail", width=12)
-    table.add_column("Duration", style="yellow", width=10)
-    
-    for r in pipeline.get("runs", []):
-        status_str = "[bold green]PASSED[/bold green]" if r["status"] == "PASS" else "[bold red]FAILED[/bold red]"
-        pass_fail = f"[green]{r['pass_count']}[/green] / [red]{r['fail_count']}[/red]"
-        table.add_row(
-            r["timestamp"][:19].replace("T", " "),
-            r["run_id"],
-            r["branch"] or "N/A",
-            r["commit"] or "N/A",
-            status_str,
-            pass_fail,
-            f"{r['duration']:.2f}s"
-        )
-        
-    console.print(table)
 
 
 if __name__ == "__main__":
