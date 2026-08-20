@@ -1,4 +1,4 @@
-# DockDesk v3.2.0
+# DockDesk v3.3.0
 
 **Local-First Semantic Documentation Auditor**
 
@@ -49,10 +49,12 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 
 ---
 
-## What's New in v3.2.0
+## What's New in v3.3.0
 
 | Feature | Description |
 |---------|-------------|
+| **Differential Git-Diff Analysis** | Audit speed is massively improved by exclusively targeting modified files. |
+| **SQLite Persistence** | Audit state is now persistently cached in SQLite for resilient re-runs. |
 | **Dashboard Settings Panel** | Manage audit configuration (`dockdesk.yml`) and auto-tune/turbo flags directly from a new settings page in the React dashboard. |
 | **In-Dashboard Model Pulling** | Select any audit-suitable model and instantly pull it locally via Ollama without leaving the dashboard UI. |
 | **Sequential Knowledge Graph** | Replaced the cluttered radial graph with a VS Code-style collapsible directory tree, complete with search, entry point quick-nav, and a mini-graph for selected node connections. |
@@ -134,7 +136,7 @@ flowchart LR
         direction TB
 
         DISCOVER["Discovery<br/><i>files · .gitignore · git-diff</i>"]
-        MERKLE["Integrity<br/><i>Merkle tree / diff / force-full-scan</i>"]
+        MERKLE["Integrity & Cache<br/><i>Git-diff / SQLite Persistence</i>"]
         RAG["RAG Context<br/><i>AST-aware splitting · ChromaDB</i>"]
         CODE["Code Analysis<br/><i>Qwen Coder SLM</i>"]
         REASON["Reasoning<br/><i>DeepSeek-R1</i>"]

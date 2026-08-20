@@ -14,7 +14,7 @@ flowchart TD
     subgraph PIPELINE["⚙️ Audit Pipeline"]
         direction TB
         DISCOVER["🔍 Discovery<br/><i>files · .gitignore · include/exclude</i>"]
-        INTEGRITY["🔐 Integrity Check<br/><i>Git diff → Merkle fallback → force-full-scan</i>"]
+        INTEGRITY["🔐 Integrity & Cache<br/><i>Git diff / SQLite Persistence</i>"]
         RAG["📚 RAG Context<br/><i>AST-aware splitting · ChromaDB</i>"]
         CODE["🧠 Code Analysis<br/><i>Qwen Coder 7B</i>"]
         REASON["💡 Reasoning<br/><i>DeepSeek-R1 1.5B</i>"]
@@ -46,13 +46,12 @@ flowchart TD
     REPORT --> OUTPUT
 ```
 
-### 1. Discovery & Integrity (Steps 1-2)
-**Objective:** Deterministic Change Detection.
+### 1. Discovery, Integrity & Cache (Steps 1-2)
+**Objective:** Deterministic Change Detection and State Persistence.
 - Discovery scans the workspace for code files and documentation, respecting `.gitignore` and include/exclude globs.
-- Integrity uses a 3-tier strategy: **Git diff** (preferred) → **Merkle tree** (fallback) → **Force full scan** (flag).
-- Git diff intersects changed files with discovered files to filter artifacts.
+- Integrity primarily uses **Differential Git-Diff** to massively improve audit speeds by exclusively targeting modified files.
 - Untracked files are included via `git ls-files --others --exclude-standard`.
-- **Fail-Fast:** If the Merkle hash matches the previous snapshot, the audit is skipped.
+- **SQLite Persistence:** Audit state is permanently cached in an SQLite database, allowing for resilient re-runs and immediate fail-fast skipping of unchanged files.
 
 ### 2. RAG Context (Step 3)
 **Objective:** Contextual Loading via AST-Aware Splitting.
@@ -81,5 +80,5 @@ flowchart TD
 - **Formats:** Markdown, JSON, SARIF (for IDE/Code Scanning integration).
 - **CI Mode:** Exits with code 1 on risk threshold breach.
 - **Auto-Fix:** Optional `--fix` flag applies documentation corrections.
-- **Dashboard:** Auto-exports `dashboard_data.json` for the React dashboard.
+- **Dashboard:** Auto-exports `dashboard_data.json` for the React dashboard. Now features a Settings Panel, Model Pulling, and Sequential Knowledge Graph.
 - **Changelog:** Appends to `audit_history.jsonl` for trend tracking.
