@@ -9,12 +9,14 @@ import RecentRuns from './components/RecentRuns'
 import FileResults from './components/FileResults'
 import PushSafety from './components/PushSafety'
 import AuditTree from './components/AuditTree'
+import KnowledgeGraph from './components/KnowledgeGraph'
 import ExportPanel from './components/ExportPanel'
 import DiscordPanel from './components/DiscordPanel'
 import AnomaliesPanel from './components/AnomaliesPanel'
 import AccountabilityPanel from './components/AccountabilityPanel'
 import AuditTrailPanel from './components/AuditTrailPanel'
 import PipelinePanel from './components/PipelinePanel'
+import SettingsPanel from './components/SettingsPanel'
 import { RefreshCw, WifiOff, Download, FileSpreadsheet, Shield } from 'lucide-react'
 
 const pageTransition = {
@@ -107,12 +109,14 @@ function App() {
     )
   }
 
-  const { stats, timeline, recent_runs, dual_model, latest_run_files, audit_tree, available_models, models_used_this_run, accountability, audit_chain_link, orchestration_metrics } = data
+  const { stats, timeline, recent_runs, dual_model, latest_run_files, audit_tree, knowledge_graph, available_models, models_used_this_run, accountability, audit_chain_link, orchestration_metrics } = data
 
   const renderContent = () => {
     switch (activeView) {
       case 'tree':
         return <AuditTree tree={audit_tree} files={latest_run_files || []} />
+      case 'knowledge-graph':
+        return <KnowledgeGraph graph={knowledge_graph || {}} />
       case 'files':
         return <FileResults files={latest_run_files || []} />
       case 'timeline':
@@ -143,6 +147,13 @@ function App() {
         return <ExportPanel data={data} />
       case 'discord':
         return <DiscordPanel />
+      case 'settings':
+        return (
+          <SettingsPanel
+            config={data.current_config || {}}
+            availableModels={available_models || []}
+          />
+        )
       case 'overview':
       default:
         return (
@@ -177,6 +188,7 @@ function App() {
   const viewTitles = {
     overview: 'Dashboard',
     tree: 'Audit Tree',
+    'knowledge-graph': 'Knowledge Graph',
     files: 'File Results',
     timeline: 'Timeline',
     safety: 'Push Safety',
@@ -188,6 +200,7 @@ function App() {
     runs: 'Recent Runs',
     reports: 'Export Reports',
     discord: 'Discord Integration',
+    settings: 'Settings',
   }
 
   return (

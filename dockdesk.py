@@ -74,7 +74,7 @@ def print_status(workspace=None):
     """Print system status."""
     workspace = _resolve_workspace(workspace)
     running, models = check_ollama()
-    status = "🟢 Running" if running else "🔴 Not running"
+    status = "Running" if running else "Not running"
     print(f"  Ollama:    {status}")
     if models:
         print(f"  Models:    {', '.join(models)}")
@@ -84,9 +84,9 @@ def print_status(workspace=None):
     # Check for Discord webhook
     webhook = os.environ.get("DOCKDESK_DISCORD_WEBHOOK", "")
     if webhook:
-        print(f"  Discord:   🟢 Webhook configured")
+        print(f"  Discord:   Webhook configured")
     else:
-        print(f"  Discord:   ⚪ Not configured (set DOCKDESK_DISCORD_WEBHOOK)")
+        print(f"  Discord:   Not configured (set DOCKDESK_DISCORD_WEBHOOK)")
     
     history = os.path.join(workspace, "audit_history.jsonl")
     if os.path.exists(history):
@@ -103,7 +103,7 @@ def run_audit(extra_args=None, workspace=None):
     workspace = _resolve_workspace(workspace)
     running, models = check_ollama()
     if not running:
-        print("\n❌ Ollama is not running!")
+        print("\nOllama is not running!")
         print("   Start it with:  ollama serve")
         print("   Then pull a model:  ollama pull qwen2.5-coder:7b")
         return
@@ -122,7 +122,7 @@ def run_audit(extra_args=None, workspace=None):
     if extra_args:
         cmd.extend(extra_args)
 
-    print(f"\n🔍 Running audit on {workspace}...")
+    print(f"\nRunning audit on {workspace}...")
     print(f"   Command: {' '.join(cmd)}\n")
     subprocess.run(cmd)
 
@@ -137,27 +137,27 @@ def open_dashboard(workspace=None):
     # Export audit data if history exists
     os.makedirs(public_dir, exist_ok=True)
     if os.path.exists(history):
-        print("📊 Exporting audit data...")
+        print("Exporting audit data...")
         cmd = _find_auditor() + ["dashboard", "--workspace", workspace, "--export", data_file]
         subprocess.run(cmd, capture_output=True)
         print("   ✓ Data exported")
     else:
-        print("⚠️  No audit history yet — dashboard will show sample data")
+        print("No audit history yet - dashboard will show sample data")
 
     # Check if node is available
     npx = shutil.which("npx")
     if not npx:
-        print("\n❌ Node.js not found! Install from: https://nodejs.org")
+        print("\nNode.js not found! Install from: https://nodejs.org")
         return
 
     # Install deps if needed
     node_modules = os.path.join(DASHBOARD_DIR, "node_modules")
     if not os.path.exists(node_modules):
-        print("📦 Installing dashboard dependencies (first time only)...")
+        print("Installing dashboard dependencies (first time only)...")
         subprocess.run(["npm", "install"], cwd=DASHBOARD_DIR, capture_output=True, shell=True)
 
     # Start Vite dev server
-    print("🚀 Starting dashboard at http://localhost:3000")
+    print("Starting dashboard at http://localhost:3000")
     print("   Press Ctrl+C to stop\n")
     try:
         subprocess.run(["npx", "vite", "--port", "3000", "--open"], cwd=DASHBOARD_DIR, shell=True)
@@ -175,7 +175,7 @@ def install_pre_push_hook(workspace=None):
     workspace = _resolve_workspace(workspace)
     git_dir = os.path.join(workspace, ".git")
     if not os.path.isdir(git_dir):
-        print("  ❌ Not a Git repository. Run 'git init' first.")
+        print("  Not a Git repository. Run 'git init' first.")
         return
 
     hooks_dir = os.path.join(git_dir, "hooks")
@@ -216,12 +216,12 @@ EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
     echo ""
-    echo "❌ Push BLOCKED: HIGH risk findings detected."
+    echo "Push BLOCKED: HIGH risk findings detected."
     echo "   Fix the issues or run: git push --no-verify"
     exit 1
 fi
 
-echo "✅ Push approved by DockDesk."
+echo "Push approved by DockDesk."
 exit 0
 """
 
@@ -253,13 +253,13 @@ def interactive_menu():
     print_status(workspace)
 
     print("  Choose an option:\n")
-    print("    [1]  🔍 Run Audit")
-    print("    [2]  📊 Open Dashboard")
+    print("    [1]  Run Audit")
+    print("    [2]  Open Dashboard")
     print("    [3]  🤖 List Models")
     print("    [4]  ⚙️  Init Config")
     print("    [5]  🔗 Set Discord Webhook")
     print("    [6]  🪝 Install Pre-Push Hook")
-    print("    [7]  ❌ Exit")
+    print("    [7]  Exit")
     print()
 
     try:

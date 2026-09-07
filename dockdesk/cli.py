@@ -383,20 +383,31 @@ def _chat_interface() -> None:
             target = intent.get("workspace", "current")
             args_obj = intent.get("args", {})
             include_from_args = args_obj.get("include")
+            has_explicit_args = bool(include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]))
             
-            # Always resolve target first to support auditing entire nested folders properly
-            selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target, skip_prompts=bool(include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"])))
-            if selected is None:
-                continue
+            # ── Workspace Resolution ──
+            # If target is "current" (user just said "audit" with no path),
+            # skip ALL interactive prompts and use the current workspace directly.
+            if target == "current" or target == workspace:
+                target_ws = workspace
+                final_include = include_from_args
+                console.print(f"[green]⚡ Activating audit in current workspace:[/green] [#FF69B4]{workspace}[/#FF69B4]")
+            else:
+                # User specified an explicit path via NLP (e.g., "audit src/", "audit flask")
+                selected = _prompt_audit_target(
+                    current_workspace=workspace,
+                    suggested_target=target,
+                    skip_prompts=has_explicit_args
+                )
+                if selected is None:
+                    continue
+                target_ws, final_include = selected
             
-            target_ws, final_include = selected
-            
-            # If the user specified explicit options via NLP, we skip the options prompts
-            if include_from_args or any(k in args_obj for k in ["fast_mode", "turbo", "model"]):
-                # Use include_from_args if NLP provided it, else fallback to what target resolution gave
+            # ── Build Options ──
+            if has_explicit_args:
+                # NLP provided explicit flags — skip the options prompt entirely
                 include_pattern = include_from_args if include_from_args else final_include
                 
-                # Fetch base config
                 from dockdesk.config import build_config
                 try:
                     base_config = build_config(target_ws)
@@ -444,11 +455,9 @@ def _chat_interface() -> None:
                 console.print("[green][+] NLP parsed options automatically. Starting audit...[/green]")
                 run_audit(opts)
             else:
-                selected = _prompt_audit_target(current_workspace=workspace, suggested_target=target)
-                if selected is None:
-                    continue
-
-                target_ws, include_pattern = selected
+                # No explicit flags — show the quick options prompt (Y/customize)
+                # but skip the target picker since we already resolved it above
+                include_pattern = final_include
                 opts = _interactive_audit_options(target_ws, include_pattern=include_pattern)
                 if opts is not None:
                     opts._from_chat = True
@@ -616,51 +625,11 @@ def _prompt_audit_target(current_workspace: str, suggested_target: str = "curren
     elif skip_prompts:
         return str(current), None
 
-    console.print(Panel(
-        "[bold #FF1493]Audit Target[/bold #FF1493]\n"
-        "[dim]Choose what to audit first. You can provide a file or folder path.\n"
-        "Use '.' for current workspace, 'b' to browse folders, or 'q' to cancel.[/dim]",
-        border_style="#8A2BE2",
-    ))
-
-    while True:
-        raw = Prompt.ask("[#DA70D6]Path to audit (file/folder)[/#DA70D6]", default=".").strip()
-
-        if raw.lower() == "q":
-            return None
-        if raw.lower() == "b":
-            picked = _browse_for_workspace(current, enter_on_select=False)
-            if not picked:
-                continue
-            return str(picked.resolve()), None
-        if raw == ".":
-            return str(current), None
-
-        matches = _resolve_user_path(raw)
-        target = _select_from_matches(matches, raw)
-        
-        if not target:
-            console.print("[yellow]🤖 I couldn't find a good match for that. Let's browse manually.[/yellow]")
-            picked = _browse_for_workspace(current, enter_on_select=False)
-            if not picked:
-                continue
-            return str(picked.resolve()), None
-
-        if not target.exists():
-            console.print(f"[bold red]🤖 I couldn't find the path: {target}[/bold red]")
-            continue
-
-        if target.is_file():
-            ws = target.parent.resolve()
-            include = target.name
-            console.print(f"[green]🤖 Auditing individual file:[/green] {target}")
-            return str(ws), include
-
-        if target.is_dir():
-            console.print(f"[green]🤖 Auditing folder:[/green] {target}")
-            return str(target.resolve()), None
-
-        console.print("[yellow][!] Unsupported target type. Choose a file or folder.[/yellow]")
+    # If no suggestion matched anything, default to the current workspace
+    # instead of forcing the user through an interactive file browser.
+    # The user already cd'd here — respect that.
+    console.print(f"[green]⚡ Using current workspace:[/green] [#FF69B4]{current}[/#FF69B4]")
+    return str(current), None
 
 
 def _interactive_audit_options(workspace: str, include_pattern: str | None = None) -> argparse.Namespace | None:
@@ -1216,6 +1185,170 @@ def discord_bot_cmd(args):
     run_discord_bot(workspace=workspace, token=token, guild_id=guild_id)
 
 
+def _start_config_sidecar(workspace: str, port: int = 3001):
+    """Start a lightweight HTTP server for dashboard config read/write."""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    import threading
+
+    config_files = ["dockdesk.yml", "dockdesk.yaml", "dockdesk.json"]
+
+    class ConfigHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass  # Suppress request logs
+
+        def _set_cors_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self._set_cors_headers()
+            self.end_headers()
+
+        def do_GET(self):
+            if self.path == "/api/config":
+                try:
+                    from dockdesk.config import load_config_file
+                    cfg = load_config_file(workspace)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps(cfg).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+                return
+
+            if self.path == "/api/models":
+                try:
+                    from dockdesk.models import get_available_ollama_models
+                    models = get_available_ollama_models()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"models": models}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+                return
+
+            self.send_response(404)
+            self._set_cors_headers()
+            self.end_headers()
+
+        def do_POST(self):
+            if self.path == "/api/config":
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length)
+                    new_config = json.loads(body)
+
+                    # Write as YAML
+                    yaml_lines = ["# DockDesk Configuration", "# Updated from Dashboard Settings\n"]
+                    yaml_keys = [
+                        "model", "reasoning_model", "output_format", "fail_on_risk",
+                        "temperature", "auto_tune", "auto_fix", "fix_code", "skip_rag",
+                        "fast_mode", "rotate_models", "turbo", "verbose", "batch_size",
+                        "max_files", "timeout_per_file", "include_patterns", "exclude_patterns",
+                    ]
+                    for key in yaml_keys:
+                        if key in new_config:
+                            val = new_config[key]
+                            if isinstance(val, bool):
+                                yaml_lines.append(f"{key}: {'true' if val else 'false'}")
+                            elif val is not None and val != "":
+                                yaml_lines.append(f"{key}: {val}")
+
+                    # Handle custom_rules list
+                    rules = new_config.get("custom_rules", [])
+                    if rules:
+                        yaml_lines.append("custom_rules:")
+                        for rule in rules:
+                            yaml_lines.append(f'  - "{rule}"')
+
+                    config_path = os.path.join(workspace, "dockdesk.yml")
+                    with open(config_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(yaml_lines) + "\n")
+
+                    # Also update the dashboard_data.json with new config
+                    for data_path in [
+                        os.path.join(workspace, "dashboard_data.json"),
+                        os.path.join(workspace, "dashboard", "public", "dashboard_data.json"),
+                    ]:
+                        try:
+                            if os.path.exists(data_path):
+                                with open(data_path, "r", encoding="utf-8") as f:
+                                    data = json.load(f)
+                                data["current_config"] = new_config
+                                with open(data_path, "w", encoding="utf-8") as f:
+                                    json.dump(data, f, indent=2, default=str)
+                        except Exception:
+                            pass
+
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "saved", "path": config_path}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+                return
+
+            if self.path == "/api/models/pull":
+                try:
+                    content_length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_length)
+                    data = json.loads(body)
+                    model_name = data.get("model")
+                    
+                    if not model_name:
+                        self.send_response(400)
+                        self._set_cors_headers()
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": "Model name required"}).encode())
+                        return
+
+                    # Trigger ollama pull
+                    import subprocess
+                    result = subprocess.run(["ollama", "pull", model_name], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self._set_cors_headers()
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"status": "success", "model": model_name}).encode())
+                    else:
+                        self.send_response(500)
+                        self._set_cors_headers()
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"error": f"Failed to pull model: {result.stderr}"}).encode())
+                except Exception as e:
+                    self.send_response(500)
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode())
+                return
+
+            self.send_response(404)
+            self._set_cors_headers()
+            self.end_headers()
+
+    server = HTTPServer(("127.0.0.1", port), ConfigHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
 def open_react_dashboard_cmd(args):
     """Export data and open the React dashboard."""
     workspace = os.path.abspath(args.workspace)
@@ -1236,6 +1369,12 @@ def open_react_dashboard_cmd(args):
     else:
         console.print("[yellow]  No audit history yet - generating empty dashboard data.[/yellow]")
         import json
+        # Include current_config in empty data
+        try:
+            from dockdesk.config import load_config_file
+            current_config = load_config_file(workspace)
+        except Exception:
+            current_config = {}
         with open(data_file, "w", encoding="utf-8") as f:
             json.dump({
                 "history": [],
@@ -1250,7 +1389,8 @@ def open_react_dashboard_cmd(args):
                     "risk_distribution": {"HIGH": 0, "MEDIUM": 0, "LOW": 0},
                     "models_per_file": {}
                 },
-                "accountability": {"developers": {}}
+                "accountability": {"developers": {}},
+                "current_config": current_config,
             }, f)
 
     # Check if node is available
@@ -1265,6 +1405,11 @@ def open_react_dashboard_cmd(args):
         console.print("[white]Installing dashboard dependencies (first time only)...[/white]")
         subprocess.run(["npm", "install"], cwd=dashboard_dir, capture_output=True, shell=True)
 
+    # Start config sidecar API server
+    sidecar_port = 3001
+    console.print(f"[dim]  Config API server on http://localhost:{sidecar_port}[/dim]")
+    sidecar = _start_config_sidecar(workspace, sidecar_port)
+
     # Start Vite dev server
     console.print("[green] Starting dashboard at http://localhost:3000[/green]")
     console.print("[dim]   Press Ctrl+C to stop[/dim]\n")
@@ -1272,6 +1417,8 @@ def open_react_dashboard_cmd(args):
         subprocess.run(["npx", "vite", "--port", "3000", "--open"], cwd=dashboard_dir, shell=True)
     except KeyboardInterrupt:
         console.print("\n\n[green] Dashboard stopped[/green]")
+    finally:
+        sidecar.shutdown()
 
 
 def _is_valid_dashboard_payload(path: str) -> bool:
@@ -1450,6 +1597,10 @@ def main():
     """Main entry point for the dockdesk CLI."""
     from dockdesk import __version__
     import sys
+
+    # Windows rich console UnicodeEncodeError workaround
+    if sys.platform == 'win32' and sys.stdout.encoding.lower() != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8')
 
     try:
         from dockdesk.models import get_available_ollama_models

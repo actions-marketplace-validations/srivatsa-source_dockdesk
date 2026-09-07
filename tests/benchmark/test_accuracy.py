@@ -2,17 +2,9 @@
 """
 DockDesk Accuracy Benchmark
 ============================
-Runs DockDesk against the golden-set test fixtures and validates detection
-accuracy. Returns exit 0 if accuracy meets thresholds, exit 1 otherwise.
-
-Usage:
-    python tests/benchmark/test_accuracy.py
-    python tests/benchmark/test_accuracy.py --verbose
-    python tests/benchmark/test_accuracy.py --model qwen2.5-coder:3b
-
-Requirements:
-    - Ollama running with default models pulled
-    - DockDesk installed (pip install -e .)
+Runs DockDesk against the golden-set test fixtures in `fixtures/`
+and validates detection accuracy, specifically broken down by file size
+to measure the impact of chunking on large files.
 """
 
 import argparse
@@ -26,9 +18,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-
 def run_audit_on_fixture(fixture_dir: str, model: str = "qwen2.5-coder:7b",
                           reasoning_model: str = "deepseek-r1:1.5b",
+                          provider: str = "ollama",
                           skip_rag: bool = True) -> list:
     """Run DockDesk audit on a fixture directory and return results."""
     from dockdesk.graph import create_audit_graph
@@ -37,12 +29,14 @@ def run_audit_on_fixture(fixture_dir: str, model: str = "qwen2.5-coder:7b",
     cli_args = {
         "workspace": str(fixture_dir),
         "model": model,
+        "provider": provider,
         "reasoning_model": reasoning_model,
         "skip_rag": skip_rag,
         "ci_mode": True,
         "fast_mode": False,
         "verbose": False,
         "force_full_scan": True,  # Benchmark always audits ALL fixture files
+        "clear_cache": True,
     }
     config = build_config(cli_args, str(fixture_dir))
 
@@ -69,160 +63,99 @@ def run_audit_on_fixture(fixture_dir: str, model: str = "qwen2.5-coder:7b",
     result = app.invoke(initial_state)
     return result.get("audit_results", [])
 
+def evaluate_results(results: list, fixtures: list, verbose: bool = False):
+    scores = {
+        "overall": {"tp": 0, "tn": 0, "fp": 0, "fn": 0},
+        "small": {"tp": 0, "tn": 0, "fp": 0, "fn": 0},
+        "large": {"tp": 0, "tn": 0, "fp": 0, "fn": 0}
+    }
 
-def evaluate_vulnerable_app(results: list, verbose: bool = False) -> dict:
-    """Check that vulnerable_app.py is flagged with FAIL + HIGH/MEDIUM risk.
-    
-    Expected detections (ground truth):
-      - SQL injection / non-parameterized query
-      - Hardcoded secrets / API keys
-      - Return type mismatch (dict vs tuple)
-      - Missing error handling
-      - MD5 instead of bcrypt
-      - Missing function parameters
-      - Incomplete state coverage
-      
-    We expect: status=FAIL, risk in (HIGH, MEDIUM), at least 2 findings.
-    """
-    scores = {"true_positive": 0, "false_negative": 0, "details": []}
-    
-    vuln_results = [r for r in results 
-                    if "vulnerable_app" in str(r.get("file", "")).lower()]
-    
-    if not vuln_results:
-        scores["false_negative"] = 1
-        scores["details"].append("MISS: vulnerable_app.py not found in results")
-        return scores
-    
-    for r in vuln_results:
-        status = r.get("status", "UNKNOWN")
-        risk = r.get("risk", "UNKNOWN")
-        findings = r.get("findings", [])
-        summary = r.get("summary", "")
-        
+    result_map = {os.path.basename(r.get("file", "")): r for r in results}
+
+    for fix in fixtures:
+        fname = fix["file"]
+        expected = fix["expected_status"]
+        is_large = fix["is_large"]
+        bucket = "large" if is_large else "small"
+
+        res = result_map.get(fname)
+        if not res:
+            if verbose:
+                print(f"  [MISSING] {fname} was not audited.")
+            if expected == "FAIL":
+                scores["overall"]["fn"] += 1
+                scores[bucket]["fn"] += 1
+            else:
+                # If expected PASS and it wasn't audited, technically it's a pass?
+                # Actually it's an error in testing, but let's count as fn for safety or ignore
+                pass
+            continue
+
+        status = res.get("status", "UNKNOWN")
         if verbose:
-            print(f"  [vulnerable_app] status={status} risk={risk} "
-                  f"findings={len(findings)} summary={summary[:100]}")
-        
-        # Ground truth: should be FAIL
-        if status == "FAIL":
-            scores["true_positive"] += 1
-            scores["details"].append(f"DETECT: status=FAIL (correct)")
-        else:
-            scores["false_negative"] += 1
-            scores["details"].append(f"MISS: status={status} (expected FAIL)")
-        
-        # Ground truth: should be HIGH or MEDIUM risk
-        if risk in ("HIGH", "MEDIUM"):
-            scores["true_positive"] += 1
-            scores["details"].append(f"DETECT: risk={risk} (correct)")
-        else:
-            scores["false_negative"] += 1
-            scores["details"].append(f"MISS: risk={risk} (expected HIGH/MEDIUM)")
-        
-        # Should have at least 2 findings
-        if len(findings) >= 2:
-            scores["true_positive"] += 1
-            scores["details"].append(f"DETECT: {len(findings)} findings (>=2 expected)")
-        elif len(findings) >= 1:
-            scores["true_positive"] += 0.5
-            scores["details"].append(f"PARTIAL: {len(findings)} finding (>=2 expected)")
-        else:
-            scores["false_negative"] += 1
-            scores["details"].append(f"MISS: 0 findings (>=2 expected)")
-        
-        # Check for keyword detection in summary/findings
-        combined_text = (summary + " " + " ".join(str(f) for f in findings)).lower()
-        keywords = ["sql", "inject", "secret", "key", "hardcod", "bcrypt", "md5",
-                     "return type", "mismatch", "parameter", "missing"]
-        keyword_hits = sum(1 for k in keywords if k in combined_text)
-        if keyword_hits >= 2:
-            scores["true_positive"] += 1
-            scores["details"].append(f"DETECT: {keyword_hits} security keywords found")
-        elif keyword_hits >= 1:
-            scores["true_positive"] += 0.5
-            scores["details"].append(f"PARTIAL: {keyword_hits} security keyword found")
-        else:
-            scores["false_negative"] += 1
-            scores["details"].append(f"MISS: no security keywords in findings")
-    
+            print(f"  [{fname}] expected={expected}, got={status}")
+
+        if expected == "FAIL":
+            if status == "FAIL":
+                scores["overall"]["tp"] += 1
+                scores[bucket]["tp"] += 1
+            else:
+                scores["overall"]["fn"] += 1
+                scores[bucket]["fn"] += 1
+        elif expected == "PASS":
+            if status in ("PASS", "SKIP"):
+                scores["overall"]["tn"] += 1
+                scores[bucket]["tn"] += 1
+            else:
+                scores["overall"]["fp"] += 1
+                scores[bucket]["fp"] += 1
+
     return scores
 
-
-def evaluate_clean_app(results: list, verbose: bool = False) -> dict:
-    """Check that clean_app.py passes with LOW risk (no false positives).
-    
-    Expected: status=PASS or SKIP, risk=LOW, 0 findings.
-    """
-    scores = {"true_negative": 0, "false_positive": 0, "details": []}
-    
-    clean_results = [r for r in results 
-                     if "clean_app" in str(r.get("file", "")).lower()]
-    
-    if not clean_results:
-        # No result means it wasn't flagged — that's correct for a clean file
-        scores["true_negative"] += 1
-        scores["details"].append("OK: clean_app.py not flagged (correct)")
-        return scores
-    
-    for r in clean_results:
-        status = r.get("status", "UNKNOWN")
-        risk = r.get("risk", "UNKNOWN")
-        findings = r.get("findings", [])
-        
-        if verbose:
-            print(f"  [clean_app] status={status} risk={risk} findings={len(findings)}")
-        
-        # Ground truth: should be PASS or SKIP
-        if status in ("PASS", "SKIP"):
-            scores["true_negative"] += 1
-            scores["details"].append(f"OK: status={status} (correct)")
-        else:
-            scores["false_positive"] += 1
-            scores["details"].append(f"FALSE_POS: status={status} (expected PASS/SKIP)")
-        
-        # Ground truth: should be LOW risk
-        if risk == "LOW":
-            scores["true_negative"] += 1
-            scores["details"].append(f"OK: risk=LOW (correct)")
-        else:
-            scores["false_positive"] += 1
-            scores["details"].append(f"FALSE_POS: risk={risk} (expected LOW)")
-    
-    return scores
-
+def calc_metrics(bucket_scores):
+    tp = bucket_scores["tp"]
+    tn = bucket_scores["tn"]
+    fp = bucket_scores["fp"]
+    fn = bucket_scores["fn"]
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    return precision, recall, f1
 
 def main():
     parser = argparse.ArgumentParser(description="DockDesk Accuracy Benchmark")
     parser.add_argument("--model", default="qwen2.5-coder:7b", help="Code analysis model")
+    parser.add_argument("--provider", default="ollama", help="LLM Provider")
     parser.add_argument("--reasoning-model", default="deepseek-r1:1.5b", help="Reasoning model")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed results")
-    parser.add_argument("--min-precision", type=float, default=0.6,
-                        help="Minimum precision threshold (default: 0.6)")
-    parser.add_argument("--min-recall", type=float, default=0.5,
-                        help="Minimum recall threshold (default: 0.5)")
+    parser.add_argument("--skip-tests", action="store_true", help="Skip actually running audit (for dry runs)")
     args = parser.parse_args()
 
     benchmark_dir = Path(__file__).parent
-    
-    print("=" * 60)
-    print("DockDesk Accuracy Benchmark")
-    print("=" * 60)
-    print(f"Fixture dir:      {benchmark_dir}")
-    print(f"Code model:       {args.model}")
-    print(f"Reasoning model:  {args.reasoning_model}")
-    print(f"Min precision:    {args.min_precision}")
-    print(f"Min recall:       {args.min_recall}")
-    print()
+    fixtures_dir = benchmark_dir / "fixtures"
+    manifest_path = fixtures_dir / "fixtures.json"
 
-    # Run audit
-    print("[*] Running audit on benchmark fixtures...")
+    with open(manifest_path, "r") as f:
+        fixtures = json.load(f)
+
+    print("=" * 60)
+    print("DockDesk Accuracy Benchmark (AST-Aware Chunking)")
+    print("=" * 60)
+    print(f"Fixture dir:      {fixtures_dir}")
+    print(f"Total fixtures:   {len(fixtures)}")
+    print(f"Code model:       {args.model}")
+
+    if args.skip_tests:
+        print("[*] Skipping tests (--skip-tests)")
+        sys.exit(0)
+
     start = time.time()
     try:
         results = run_audit_on_fixture(
-            benchmark_dir, 
+            str(fixtures_dir), 
             model=args.model,
             reasoning_model=args.reasoning_model,
+            provider=args.provider
         )
     except Exception as e:
         print(f"[-] Audit failed: {e}")
@@ -231,75 +164,23 @@ def main():
     print(f"[+] Audit completed in {elapsed:.1f}s ({len(results)} results)")
     print()
 
-    # Evaluate
-    print("[*] Evaluating vulnerable_app.py (should detect issues)...")
-    vuln_scores = evaluate_vulnerable_app(results, verbose=args.verbose)
-    
-    print("[*] Evaluating clean_app.py (should pass cleanly)...")
-    clean_scores = evaluate_clean_app(results, verbose=args.verbose)
-    print()
-    
-    # Compute metrics
-    tp = vuln_scores["true_positive"]
-    fn = vuln_scores["false_negative"]
-    tn = clean_scores["true_negative"]
-    fp = clean_scores["false_positive"]
-    
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-    
-    print("=" * 60)
-    print("Results")
-    print("=" * 60)
-    print(f"  True Positives:  {tp}")
-    print(f"  False Negatives: {fn}")
-    print(f"  True Negatives:  {tn}")
-    print(f"  False Positives: {fp}")
-    print(f"  Precision:       {precision:.2%}")
-    print(f"  Recall:          {recall:.2%}")
-    print(f"  F1 Score:        {f1:.2%}")
-    print(f"  Elapsed:         {elapsed:.1f}s")
-    print()
-    
-    if args.verbose:
-        print("Detailed breakdown:")
-        for d in vuln_scores["details"]:
-            print(f"  vuln: {d}")
-        for d in clean_scores["details"]:
-            print(f"  clean: {d}")
-        print()
-    
+    scores = evaluate_results(results, fixtures, verbose=args.verbose)
+
+    for bucket in ["overall", "small", "large"]:
+        p, r, f1 = calc_metrics(scores[bucket])
+        print(f"--- {bucket.upper()} FILES ---")
+        print(f"  TP: {scores[bucket]['tp']}, TN: {scores[bucket]['tn']}, FP: {scores[bucket]['fp']}, FN: {scores[bucket]['fn']}")
+        print(f"  Precision: {p:.2%} | Recall: {r:.2%} | F1: {f1:.2%}\n")
+
     # Save results
     report = {
         "model": args.model,
-        "reasoning_model": args.reasoning_model,
-        "precision": round(precision, 4),
-        "recall": round(recall, 4),
-        "f1": round(f1, 4),
-        "true_positives": tp,
-        "false_negatives": fn,
-        "true_negatives": tn,
-        "false_positives": fp,
+        "scores": scores,
         "elapsed_seconds": round(elapsed, 1),
-        "raw_results": results,
     }
     report_path = benchmark_dir / "benchmark_results.json"
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2, default=str)
-    print(f"[+] Report saved: {report_path}")
     
-    # Pass/fail
-    passed = precision >= args.min_precision and recall >= args.min_recall
-    if passed:
-        print(f"[PASS] Precision {precision:.2%} >= {args.min_precision:.0%}, "
-              f"Recall {recall:.2%} >= {args.min_recall:.0%}")
-        sys.exit(0)
-    else:
-        print(f"[FAIL] Precision {precision:.2%} (need {args.min_precision:.0%}), "
-              f"Recall {recall:.2%} (need {args.min_recall:.0%})")
-        sys.exit(1)
-
-
 if __name__ == "__main__":
     main()

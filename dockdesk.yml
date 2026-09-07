@@ -1,0 +1,8 @@
+model: qwen2.5-coder:3b
+reasoning_model: deepseek-r1:1.5b
+output_format: md
+auto_tune: false
+skip_rag: false
+fast_mode: false
+rotate_models: false
+turbo: false

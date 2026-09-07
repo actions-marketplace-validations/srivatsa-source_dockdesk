@@ -1,0 +1,47 @@
+name: DockDesk Knowledge Graph
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+jobs:
+  knowledge-graph:
+    name: Repository Knowledge Graph
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install DockDesk
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Export Knowledge Graph
+        run: |
+          dockdesk knowledge-graph \
+            --workspace . \
+            --output knowledge_graph.json \
+            --markdown knowledge_graph.md \
+            --dashboard-data dashboard_data.json
+
+      - name: Upload Knowledge Graph Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dockdesk-knowledge-graph-${{ github.run_number }}
+          path: |
+            knowledge_graph.json
+            knowledge_graph.md
+            dashboard_data.json
+          retention-days: 30

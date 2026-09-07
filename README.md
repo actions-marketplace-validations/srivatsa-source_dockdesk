@@ -1,4 +1,4 @@
-# DockDesk v3.0.1
+# DockDesk v3.3.0
 
 **Local-First Semantic Documentation Auditor**
 
@@ -48,6 +48,16 @@ If your code uses `os.getenv('API_KEY')` but your README says "Hardcode your key
 | **Infrastructure Cost** | No API credits. Efficient SLMs run on standard hardware. |
 
 ---
+
+## What's New in v3.3.0
+
+| Feature | Description |
+|---------|-------------|
+| **Differential Git-Diff Analysis** | Audit speed is massively improved by exclusively targeting modified files. |
+| **SQLite Persistence** | Audit state is now persistently cached in SQLite for resilient re-runs. |
+| **Dashboard Settings Panel** | Manage audit configuration (`dockdesk.yml`) and auto-tune/turbo flags directly from a new settings page in the React dashboard. |
+| **In-Dashboard Model Pulling** | Select any audit-suitable model and instantly pull it locally via Ollama without leaving the dashboard UI. |
+| **Sequential Knowledge Graph** | Replaced the cluttered radial graph with a VS Code-style collapsible directory tree, complete with search, entry point quick-nav, and a mini-graph for selected node connections. |
 
 ## What's New in v3.0.0
 
@@ -126,7 +136,7 @@ flowchart LR
         direction TB
 
         DISCOVER["Discovery<br/><i>files · .gitignore · git-diff</i>"]
-        MERKLE["Integrity<br/><i>Merkle tree / diff / force-full-scan</i>"]
+        MERKLE["Integrity & Cache<br/><i>Git-diff / SQLite Persistence</i>"]
         RAG["RAG Context<br/><i>AST-aware splitting · ChromaDB</i>"]
         CODE["Code Analysis<br/><i>Qwen Coder SLM</i>"]
         REASON["Reasoning<br/><i>DeepSeek-R1</i>"]
@@ -218,6 +228,7 @@ flowchart LR
 | **Discovery** | `dockdesk/discovery.py` | Scans workspace for code and docs |
 | **RAG** | `dockdesk/rag.py` | Retrieves context via ChromaDB |
 | **Graph** | `dockdesk/graph.py` | LangGraph audit pipeline |
+| **Knowledge Graph** | `dockdesk/knowledge_graph.py` | Repository graph export for CLI, dashboard, and GitHub Actions |
 | **Fixer** | `dockdesk/fixer.py` | Generates and applies fixes |
 | **Dashboard** | `dashboard/` | React visualization app |
 
@@ -226,59 +237,25 @@ flowchart LR
 ## Quick Start
 
 ### Prerequisites
-
 - Python 3.11+
-- [Ollama](https://ollama.com) installed and running
-- Git (for diff-based auditing)
+- [Ollama](https://ollama.com/) (Must be running locally: `ollama serve`)
+- Git
 
-### Installation
+### Installation & Basic Usage
 
 ```bash
 # 1. Install DockDesk
-pip install dockdesk
+pip install .
 
-# 2. Interactive setup — installs Ollama and pulls recommended models
-dockdesk setup
+# 2. Initialize configuration (optional, creates dockdesk.yml)
+dockdesk init
 
-# 3. Open the interactive command interface
-dockdesk
+# 3. Run your first audit
+dockdesk audit .
 
-# 4. Run your first audit
-dockdesk audit --workspace /path/to/your/project
-
-# Or audit a remote repo directly
-dockdesk audit -w https://github.com/pallets/flask --skip-rag --max-files 20 --fast
+# 4. View the results summary
+dockdesk report
 ```
-
-#### Manual Setup (alternative)
-
-```bash
-# 1. Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# 2. Pull audit models
-ollama pull qwen2.5-coder:7b
-ollama pull deepseek-r1:1.5b
-
-# 3. Install DockDesk (pick one)
-pip install dockdesk                  # From PyPI
-pip install git+https://github.com/srivatsa-source/dockdesk.git  # From GitHub
-
-# 4. Run your first audit
-dockdesk audit --workspace /path/to/your/project
-```
-
-#### Development Install
-
-```bash
-git clone https://github.com/srivatsa-source/dockdesk.git
-cd dockdesk
-pip install -e .    # Editable install — code changes take effect immediately
-```
-
-See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed setup instructions.
-
----
 
 ## Model Selection
 
@@ -331,108 +308,41 @@ dockdesk list-models
 ## CLI Reference
 
 ### Commands
-
 ```bash
 # Basic audit
-dockdesk audit --workspace ./my-project
-
-# Audit a remote repo by URL
-dockdesk audit -w https://github.com/django/django --skip-rag --max-files 30 --fast
+dockdesk audit /path/to/repo
 
 # Auto-tune model and apply fixes
 dockdesk audit --auto-tune --fix
 
-# CI mode with risk gating
-dockdesk audit --ci --fail-on-risk HIGH
-
-# SARIF output for VS Code
-dockdesk audit --format sarif --output audit.sarif
-
-# Turbo mode (fast + parallel + skip-rag)
-dockdesk audit --turbo
-
-# Multi-model rotation (round-robin per file)
-dockdesk audit --rotate-models
-
-# Export dashboard data
-dockdesk dashboard --export dashboard_data.json
-
-# Open the React dashboard directly
-dockdesk dashboard --open
-
-# Manage profiles
-dockdesk profile list
-
-# Start the rich terminal dashboard
-dockdesk tui --workspace ./my-project
-
-# Set up shell completion
-dockdesk completion
-
-# Run Discord bot (slash commands + two-way interaction)
-dockdesk discord-bot --workspace . --guild-id <YOUR_GUILD_ID>
-
 # Initialize configuration file
 dockdesk init
+
+# View the last audit result
+dockdesk report
 ```
 
 ### Options
+- `--workspace, -w`: Path to repo (default: `.`)
+- `--model, -m`: Code analysis model
+- `--reasoning-model`: Risk assessment model
+- `--auto-tune`: Auto-select model based on LOC
+- `--fix`: Apply suggested fixes automatically
+- `--format, -f`: Output format (md, json, sarif)
+- `--output, -o`: Output file path
+- `--ci`: CI mode (non-interactive, fails on high risk)
 
-| Option | Short | Description | Default |
-|--------|-------|-------------|---------|
-| `--workspace` | `-w` | Local path or git URL to audit | `.` |
-| `--model` | `-m` | Ollama model name | `qwen2.5-coder:7b` |
-| `--reasoning-model` | | DeepSeek-R1 model for risk assessment | `deepseek-r1:1.5b` |
-| `--auto-tune` | | Auto-select model by LOC | `false` |
-| `--fix` | | Apply documentation fixes | `false` |
-| `--fix-code` | | Apply code fixes | `false` |
-| `--format` | `-f` | Output format: `md`, `json`, `sarif` | `md` |
-| `--output` | `-o` | Output file path | `audit_report.md` |
-| `--ci` | | CI mode (non-interactive) | `false` |
-| `--fail-on-risk` | | Exit 1 on risk level: `HIGH`, `MEDIUM`, `LOW` | `HIGH` |
-| `--skip-rag` | | Skip RAG for faster audits | `false` |
-| `--turbo` | | Turbo mode (fast + parallel + skip-rag) | `false` |
-| `--rotate-models` | | Round-robin code models per file (local models only) | `false` |
-| `--max-files` | | Max files to analyze | unlimited |
-| `--workers` | | Parallel worker threads | auto |
-| `--keep-clone` | | Keep temp clone after URL audit | `false` |
-| `--verbose` | `-v` | Verbose output | `false` |
+### Cloud Providers
 
-### Profiles
+You can run DockDesk with cloud provider APIs instead of local Ollama using the `--provider` flag:
 
-Profiles let you reuse common audit presets. Built-in profiles include `strict`, `fast`, and `ci`.
+| Provider | Command Flag | Requires Env Var | Default Model |
+|----------|--------------|------------------|---------------|
+| Ollama (Default) | `--provider ollama` | None | `qwen2.5-coder:7b` |
+| OpenAI | `--provider openai` | `OPENAI_API_KEY` | `gpt-4o` (override w/ `--model`) |
+| Anthropic | `--provider anthropic` | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-20241022` |
 
-```bash
-# List available profiles
-dockdesk profile list
-
-# Show a profile definition
-dockdesk profile show strict
-
-# Create a user profile file
-dockdesk profile create custom-fast
-
-# Initialize a global config file
-dockdesk profile init
-```
-
-### Discord Bot Slash Commands
-
-DockDesk supports a real Discord bot mode (not webhook-only) with slash commands and two-way interactions.
-
-```bash
-# Bot token can be passed directly or via DOCKDESK_DISCORD_BOT_TOKEN
-dockdesk discord-bot --workspace . --token <BOT_TOKEN> --guild-id <GUILD_ID>
-```
-
-Available slash commands after startup:
-
-- `/dockdesk ping` - health check
-- `/dockdesk status` - latest audit summary
-- `/dockdesk recent` - recent run history
-- `/dockdesk audit` - trigger an audit run from Discord (supports fast/rotation/max-files options)
-
----
+*Note: For privacy, cloud providers are strictly opt-in and will print a guardrail warning when active.*
 
 ## GitHub Actions Integration
 
@@ -471,6 +381,7 @@ jobs:
         with:
           model: qwen2.5-coder:7b
           fail_on_risk: HIGH
+          knowledge_graph: true
       
       - uses: actions/upload-artifact@v4
         if: always()
@@ -490,51 +401,12 @@ jobs:
 | `auto_fix` | `false` | Auto-apply documentation fixes |
 | `ollama_host` | `http://localhost:11434` | Ollama server URL |
 | `python_version` | `3.11` | Python version to use |
+| `knowledge_graph` | `true` | Generate a repository knowledge graph artifact |
+| `knowledge_graph_output` | `knowledge_graph.json` | JSON output path for the graph |
+| `knowledge_graph_markdown` | `knowledge_graph.md` | Markdown summary output path |
 
 See [.github/workflows/dockdesk-example.yml](.github/workflows/dockdesk-example.yml) for advanced examples.
-
----
-
-## Dashboard
-
-Visualize audit history with the React dashboard.
-
-### Local Development
-
-```bash
-# Export audit data
-dockdesk dashboard --export dashboard/public/dashboard_data.json
-
-# Or open the React dashboard directly from the CLI
-dockdesk dashboard --open
-
-# Run dashboard locally
-cd dashboard
-npm install
-npm run dev
-```
-
-### Deploy to Vercel
-
-```bash
-cd dashboard
-npm run build
-npx vercel --prod
-```
-
-### Dashboard Features
-
-| Feature | Description |
-|---------|-------------|
-| Audit Timeline | Line chart showing audit frequency over time |
-| Audit Tree | Hierarchical file tree with per-folder risk totals and file details |
-| Risk Distribution | Pie chart of LOW / MEDIUM / HIGH findings |
-| Model Usage | Bar chart, model rotation summary, and available-model inventory |
-| Orchestration Anomalies | Real-time monitoring of LLM execution, fallback routing, and pipeline dropoff |
-| Export Panel | Excel, CSV, and print/PDF export options |
-| Discord Panel | Webhook setup and test ping preview |
-| Recent Runs | List of recent audits with status indicators |
-| Statistics Cards | Total audits, pass rate, active models, and high-risk count |
+For the graph-only flow, see [.github/workflows/knowledge-graph.yml](.github/workflows/knowledge-graph.yml).
 
 ---
 
@@ -573,29 +445,6 @@ enable_changelog: true
 | `DOCKDESK_DISCORD_BOT_TOKEN` | Discord bot token for slash-command mode |
 | `DOCKDESK_DISCORD_BOT_GUILD_ID` | Optional guild ID for faster slash-command sync |
 | `DOCKDESK_ROTATE_MODELS` | Enable per-file model rotation (`true`/`false`) |
-
-### Profiles and Global Config
-
-DockDesk also layers in global settings and named profiles from `~/.config/dockdesk/`.
-
-```yaml
-# ~/.config/dockdesk/config.yml
-model: qwen2.5-coder:7b
-reasoning_model: deepseek-r1:1.5b
-skip_rag: false
-rotate_models: false
-```
-
-The configuration priority is:
-
-1. CLI arguments
-2. Environment variables
-3. Workspace `dockdesk.yml`
-4. Named profile
-5. Global config
-6. Built-in defaults
-
----
 
 ## Roadmap
 
@@ -657,6 +506,15 @@ dockdesk/
 ```
 
 ---
+
+
+## Advanced / Legacy Commands
+DockDesk contains several legacy features (TUI, React Dashboard, Discord Bot, Profiles, and advanced model management) which are now hidden by default to keep the CLI minimal. You can access these commands by passing the `--legacy` flag:
+```bash
+dockdesk --legacy dashboard --open
+dockdesk --legacy discord-bot
+dockdesk --legacy tui
+```
 
 ## License
 

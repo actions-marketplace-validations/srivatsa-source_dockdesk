@@ -1,0 +1,1 @@
+Gets env variable `API_KEY`.

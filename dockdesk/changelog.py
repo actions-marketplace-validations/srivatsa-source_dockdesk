@@ -656,8 +656,20 @@ class ChangelogReader:
         """Export data in dashboard-friendly format."""
         runs = self.get_runs(limit=100)
         stats = self.get_stats_summary()
+        try:
+            from .knowledge_graph import build_knowledge_graph
+        except Exception:
+            build_knowledge_graph = None
 
         if not runs:
+            empty_graph = build_knowledge_graph(str(self.changelog_path.parent)) if build_knowledge_graph else {
+                "workspace": str(self.changelog_path.parent),
+                "generated_at": "",
+                "nodes": [],
+                "edges": [],
+                "clusters": [],
+                "stats": {"total_nodes": 0, "total_edges": 0, "file_nodes": 0, "directory_nodes": 0, "doc_nodes": 0, "source_nodes": 0, "config_nodes": 0, "entry_points": []},
+            }
             return {
                 "stats": stats,
                 "timeline": [],
@@ -670,6 +682,7 @@ class ChangelogReader:
                 "orchestration_metrics": {},
                 "accountability": {"developers": {}, "teams": {}, "top_offenders": [], "clean_streaks": [], "codeowners_loaded": False},
                 "audit_chain_link": {},
+                "knowledge_graph": empty_graph,
                 "history": [],
                 "latest": {
                     "metrics": {"files_analyzed": 0, "findings_count": 0, "safe_to_push": 0, "unsafe_to_push": 0},
@@ -746,6 +759,15 @@ class ChangelogReader:
             accountability = {"developers": {}, "teams": {}, "top_offenders": [], "clean_streaks": [], "codeowners_loaded": False}
             audit_chain_link = {}
 
+        knowledge_graph = build_knowledge_graph(workspace) if build_knowledge_graph else {
+            "workspace": workspace,
+            "generated_at": "",
+            "nodes": [],
+            "edges": [],
+            "clusters": [],
+            "stats": {"total_nodes": 0, "total_edges": 0, "file_nodes": 0, "directory_nodes": 0, "doc_nodes": 0, "source_nodes": 0, "config_nodes": 0, "entry_points": []},
+        }
+
         config_snapshot = latest_run.get("config_snapshot") or {}
         available_models = sorted({m for m in [latest_run.get("model", ""), config_snapshot.get("reasoning_model", "")] if m})
         available_models = sorted(set(available_models).union(stats.get("model_usage", {}).keys()))
@@ -805,6 +827,7 @@ class ChangelogReader:
             "orchestration_metrics": orchestration_metrics,
             "accountability": accountability,
             "audit_chain_link": audit_chain_link,
+            "knowledge_graph": knowledge_graph,
             "history": records,
             "pipeline_monitoring": pipeline_monitoring,
             "latest": {

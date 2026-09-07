@@ -1,0 +1,1 @@
+Authentication module. Provides a method to authenticate users securely using bcrypt.

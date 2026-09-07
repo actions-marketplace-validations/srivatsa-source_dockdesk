@@ -15,8 +15,9 @@ from .merkle import build_merkle_tree, get_merkle_diff
 from .discord import DiscordNotifier
 from .cache import ResultCache
 from .ollama_pool import OllamaPool
+from .knowledge_graph import build_knowledge_graph, build_knowledge_graph_summary
+from .providers import get_provider
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import JsonOutputParser
 
 console = Console(highlight=False)
@@ -354,8 +355,18 @@ def retrieval_node(state: AuditState) -> AuditState:
     
     query = "Authentication mechanisms, API routes, main entry points, security configurations"
     context = retriever.query(query)
-    
-    return {"context_data": context}
+
+    try:
+        graph = build_knowledge_graph(state["workspace_path"])
+        graph_context = build_knowledge_graph_summary(graph)
+    except Exception:
+        graph_context = ""
+
+    combined_context = context.strip()
+    if graph_context:
+        combined_context = f"{combined_context}\n\n{graph_context}".strip() if combined_context else graph_context
+
+    return {"context_data": combined_context}
 
 def parse_llm_json(content: str) -> dict:
     """
@@ -442,11 +453,12 @@ def _select_docs_for_file(file_path: str, doc_sources: List[dict], top_k: int = 
         return []
 
     base = os.path.basename(file_path).lower()
+    base_no_ext = os.path.splitext(base)[0]
     scores = []
     for doc in doc_sources:
         path = doc.get("path", "").lower()
         score = 0
-        if base and base in path:
+        if base_no_ext and base_no_ext in path:
             score += 2
         if os.path.dirname(file_path).lower() in path:
             score += 1
@@ -455,7 +467,7 @@ def _select_docs_for_file(file_path: str, doc_sources: List[dict], top_k: int = 
         scores.append((score, doc))
 
     scores.sort(key=lambda x: x[0], reverse=True)
-    return [d for _, d in scores[:top_k]]
+    return [d for s, d in scores if s >= 2][:top_k]
 
 # Node: Code Analysis - Qwen Coder (the "hands")
 # Reads code, compares against docs, detects drift, produces raw findings + draft fixes.
@@ -563,15 +575,36 @@ def code_analysis_node(state: AuditState) -> AuditState:
                 return cached
 
         docs_subset = _precomputed_docs.get(file_path, [])
-        docs_text = "\n".join([f"[{d['path']}]: {d['content'][:500]}" for d in docs_subset])
+        docs_text = "\n".join([f"[{d['path']}]: {d['content']}" for d in docs_subset])
 
-        # Truncate code to fit context window - prioritize git diff of changed lines
-        diff_content = _get_file_git_diff(file_path, workspace)
-        if diff_content:
-            code_trimmed = f"--- GIT DIFF ---\n{diff_content[:3000]}\n----------------\n\n--- TRIMMED FULL CODE ---\n{code_content[:1500]}"
-        else:
-            code_trimmed = code_content[:2000]
+        if len(docs_text) > 2000:
+            # We just truncate docs to 2000 chars for now to avoid a second LLM call,
+            # or summarize if we had a dedicated summary prompt.
+            docs_text = docs_text[:2000] + "\n... (truncated)"
 
+        from dockdesk.chunking import chunk_code
+        chunks = chunk_code(file_path, code_content, max_chars=2000)
+
+        # If no docs were found, short-circuit to SKIP without calling the LLM
+        effective_docs = docs_text or "(no docs found)"
+        if not docs_text or docs_text.strip() == "":
+            result = {
+                "status": "SKIP",
+                "findings": [],
+                "summary": "No documentation found for this file",
+                "draft_fix": "",
+            }
+            result["file"] = file_path
+            result["code_model"] = selected_model
+            result["duration_ms"] = int((time.time() - start_time) * 1000)
+            result["cached"] = False
+            if _cache and ck:
+                _cache.put(ck, result, model=selected_model, file_path=file_path)
+            return result
+
+        provider = get_provider(config.provider, pool=_pool) if config and hasattr(config, 'provider') else get_provider("ollama", pool=_pool)
+        llm = provider.get_llm(model=selected_model, temperature=temperature, num_predict=512, num_ctx=3072)
+        
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a code-vs-documentation drift detector.
 Compare the CODE against the DOCS for the given file.
@@ -588,62 +621,67 @@ IMPORTANT:
 - If status is "SKIP", set findings to [] and draft_fix to "".
 - If status is "PASS", set findings to [] and draft_fix to "".
 - Minor wording differences are NOT failures. Only flag real inaccuracies.""" + _custom_rules_text),
-            ("user", "FILE: {file_path}\nCODE:\n{code_content}\nDOCS:\n{docs_text}")
+            ("user", "FILE: {file_path}\nLINES: {start_line}-{end_line}\nCODE:\n{chunk_text}\nDOCS:\n{docs_text}\n\nREPOSITORY CONTEXT:\n{context_data}")
         ])
-
-        llm = _pool.get_llm(model=selected_model, temperature=temperature, num_predict=512, num_ctx=2048) if _pool else ChatOllama(model=selected_model, temperature=temperature, num_predict=512, num_ctx=2048)
         chain = prompt | llm
 
-        # If no docs were found, short-circuit to SKIP without calling the LLM
-        effective_docs = docs_text or "(no docs found)"
-        if not docs_text or docs_text.strip() == "":
-            result = {
-                "status": "SKIP",
-                "findings": [],
-                "summary": "No documentation found for this file",
-                "draft_fix": "",
-            }
-        else:
+        all_findings = []
+        all_fixes = []
+        any_fail = False
+        any_error = False
+
+        for chunk in chunks:
             try:
                 response = chain.invoke({
                     "file_path": os.path.basename(file_path),
-                    "code_content": code_trimmed,
-                    "docs_text": effective_docs
+                    "start_line": chunk["start_line"],
+                    "end_line": chunk["end_line"],
+                    "chunk_text": chunk["text"],
+                    "docs_text": effective_docs,
+                    "context_data": context_data or "(no repository context)",
                 })
-                result = parse_llm_json(response.content)
+                res = parse_llm_json(response.content)
+                if res.get("status") == "FAIL":
+                    any_fail = True
+                    for f in res.get("findings", []):
+                        all_findings.append(f"[Lines {chunk['start_line']}-{chunk['end_line']}] {f}")
+                    if res.get("draft_fix"):
+                        all_fixes.append(f"[Lines {chunk['start_line']}-{chunk['end_line']}] {res.get('draft_fix')}")
             except Exception as e:
-                # OLLAMA / LOCAL LLM CALL FAILED! Fall back to GitHub/Local Heuristic Lens!
-                console.print(f"[bold yellow][!] Local LLM inference failed for {os.path.basename(file_path)}: {e}[/bold yellow]")
-                console.print(f"[yellow]    └─ Falling back to GitHub/Local Heuristic Lens...[/yellow]")
-                
-                from .github_lens import identify_problems
-                result = identify_problems(
-                    file_path=file_path,
-                    workspace=workspace,
-                    code_content=code_content,
-                    docs_text=docs_text
-                )
-                selected_model = result.get("code_model", "Local Heuristic Lens")
+                any_error = True
+                all_findings.append(f"[Lines {chunk['start_line']}-{chunk['end_line']}] Error: {str(e)}")
 
-            # Safety net: if LLM still returned FAIL for no-docs, override to SKIP
-            if effective_docs == "(no docs found)" and result.get("status") == "FAIL":
-                result["status"] = "SKIP"
-                result["findings"] = []
-                result["draft_fix"] = ""
-                result["summary"] = result.get("summary", "No documentation found")
+        if any_error and not any_fail:
+            final_status = "ERROR"
+            summary = "Error during chunk analysis"
+        elif any_fail:
+            final_status = "FAIL"
+            summary = f"Found {len(all_findings)} drift issues across chunks."
+        else:
+            final_status = "PASS"
+            summary = "Code matches documentation."
 
-        result["file"] = file_path
-        result["code_model"] = selected_model
-        result["duration_ms"] = int((time.time() - start_time) * 1000)
-        result.setdefault("findings", [])
-        result.setdefault("draft_fix", "")
-        result.setdefault("status", "UNKNOWN")
-        result.setdefault("summary", "")
-        result["cached"] = False
+        result = {
+            "status": final_status,
+            "findings": all_findings,
+            "summary": summary,
+            "draft_fix": "\n".join(all_fixes) if all_fixes else "",
+            "file": file_path,
+            "code_model": selected_model,
+            "duration_ms": int((time.time() - start_time) * 1000),
+            "cached": False
+        }
 
-        # Persist to SQLite cache (reuse pre-computed key)
+        # Safety net for no-docs
+        if effective_docs == "(no docs found)" and result.get("status") == "FAIL":
+            result["status"] = "SKIP"
+            result["findings"] = []
+            result["draft_fix"] = ""
+            result["summary"] = "No documentation found"
+
         if _cache and ck:
             _cache.put(ck, result, model=selected_model, file_path=file_path)
+            
         return result
 
     def _analyze_batch(file_paths: List[str]) -> List[dict]:
@@ -687,7 +725,8 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
             ("user", "{combined}")
         ])
 
-        llm = _pool.get_llm(model=code_model, temperature=temperature, num_predict=1024, num_ctx=4096) if _pool else ChatOllama(model=code_model, temperature=temperature, num_predict=1024, num_ctx=4096)
+        provider = get_provider(config.provider, pool=_pool) if config and hasattr(config, 'provider') else get_provider("ollama", pool=_pool)
+        llm = provider.get_llm(model=code_model, temperature=temperature, num_predict=1024, num_ctx=4096)
         chain = prompt | llm
 
         try:
@@ -742,13 +781,34 @@ Reply ONLY with the JSON array, no other text.""" + _custom_rules_text),
     cfg_workers = config.workers if config and hasattr(config, 'workers') and config.workers > 0 else 0
     max_workers = cfg_workers if cfg_workers > 0 else min(pool_workers, len(changed_files)) if changed_files else 1
 
-    use_batching = (not rotate_models) and fast_mode and len(changed_files) > batch_size
+    large_files = [f for f in changed_files if len(state["file_contents"].get(f, "")) > 1200]
+    small_files = [f for f in changed_files if len(state["file_contents"].get(f, "")) <= 1200]
+    
+    use_batching = (not rotate_models) and fast_mode and len(small_files) > batch_size
 
     from dockdesk.ui import get_progress_bar
     with get_progress_bar() as progress:
         if use_batching:
-            # ── Batched mode: group files into batches ──
-            batches = [changed_files[i:i+batch_size] for i in range(0, len(changed_files), batch_size)]
+            # Analyze large files individually first
+            if large_files:
+                task_l = progress.add_task("Code analysis (large files)", total=len(large_files), filename="analyzing")
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_map = {executor.submit(_analyze_single, f): f for f in large_files}
+                    for future in as_completed(future_map):
+                        fpath = future_map[future]
+                        try:
+                            res = future.result(timeout=timeout)
+                            code_findings.append(res)
+                        except Exception as e:
+                            code_findings.append({
+                                "file": fpath, "status": "ERROR", "findings": [str(e)],
+                                "summary": f"Analysis failed: {str(e)}", "draft_fix": "",
+                                "code_model": code_model, "duration_ms": 0, "cached": False,
+                            })
+                        progress.update(task_l, advance=1, filename=os.path.basename(fpath))
+
+            # ── Batched mode: group small files into batches ──
+            batches = [small_files[i:i+batch_size] for i in range(0, len(small_files), batch_size)]
             task = progress.add_task("Code analysis (batched)", total=len(batches), filename="batching")
             with ThreadPoolExecutor(max_workers=max(2, max_workers // 2)) as executor:
                 future_map = {executor.submit(_analyze_batch, b): b for b in batches}
@@ -920,7 +980,8 @@ Rules:
             ("user", "FILE: {file_path}\nSTATUS: {status}\nFINDINGS: {findings_text}\nSUMMARY: {summary}\nDRAFT_FIX: {draft_fix}")
         ])
 
-        llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048)
+        provider = get_provider(config.provider, pool=None) if config and hasattr(config, 'provider') else get_provider("ollama", pool=None)
+        llm = provider.get_llm(model=reasoning_model, temperature=temperature, num_predict=1536, num_ctx=2048)
         chain = prompt | llm
 
         # Retry loop - DeepSeek-R1 sometimes returns empty due to internal <think> consuming all tokens
@@ -932,7 +993,8 @@ Rules:
             try:
                 if attempt > 0:
                     # Escalate num_predict on retry
-                    llm = _pool.get_llm(model=reasoning_model, temperature=temperature, num_predict=predict_schedule[min(attempt, len(predict_schedule)-1)], num_ctx=2048) if _pool else ChatOllama(model=reasoning_model, temperature=temperature, num_predict=predict_schedule[min(attempt, len(predict_schedule)-1)], num_ctx=2048)
+                    provider = get_provider(config.provider, pool=_pool) if config and hasattr(config, 'provider') else get_provider("ollama", pool=_pool)
+                    llm = provider.get_llm(model=reasoning_model, temperature=temperature, num_predict=predict_schedule[min(attempt, len(predict_schedule)-1)], num_ctx=2048)
                     chain = prompt | llm
                 response = chain.invoke({
                     "file_path": os.path.basename(file_path),
@@ -1435,11 +1497,11 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
         from .changelog import ChangelogReader, DEFAULT_CHANGELOG_FILE
 
         changelog_path = os.path.join(workspace, DEFAULT_CHANGELOG_FILE)
-        if not os.path.exists(changelog_path):
-            return
-
-        reader = ChangelogReader(changelog_path)
-        data = reader.export_for_dashboard()
+        if os.path.exists(changelog_path):
+            reader = ChangelogReader(changelog_path)
+            data = reader.export_for_dashboard()
+        else:
+            data = {"runs": [], "timeline": [], "files_history": {}, "risk_trend": []}
 
         # Enrich with dual-model info
         data["dual_model"] = {
@@ -1489,6 +1551,26 @@ def _auto_export_dashboard(workspace: str, results: List[dict], code_model: str,
         # Accountability data (USP)
         data["accountability"] = state.get("accountability_data", {})
         data["audit_chain_link"] = state.get("audit_chain_link", {})
+
+        # Repository knowledge graph for the interactive dashboard / LLM context.
+        try:
+            data["knowledge_graph"] = build_knowledge_graph(workspace)
+        except Exception:
+            data["knowledge_graph"] = {
+                "workspace": workspace,
+                "generated_at": "",
+                "nodes": [],
+                "edges": [],
+                "clusters": [],
+                "stats": {"total_nodes": 0, "total_edges": 0, "file_nodes": 0, "directory_nodes": 0, "doc_nodes": 0, "source_nodes": 0, "config_nodes": 0, "entry_points": []},
+            }
+
+        # Include current workspace config for the Settings panel
+        try:
+            from .config import load_config_file
+            data["current_config"] = load_config_file(workspace)
+        except Exception:
+            data["current_config"] = {}
 
         # Write to both workspace root and dashboard/public for dev server
         for dest in [

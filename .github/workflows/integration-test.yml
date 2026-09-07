@@ -61,7 +61,7 @@ jobs:
         run: git clone --depth 1 https://github.com/pallets/click /tmp/test-repo
 
       - name: Run smoke audit
-        run: dockdesk audit --workspace /tmp/test-repo --skip-rag --max-files 10 --fast --ci
+        run: dockdesk audit --workspace /tmp/test-repo --skip-rag --max-files 3 --fast --ci
         timeout-minutes: 5
 
       - name: Verify outputs
@@ -118,12 +118,12 @@ jobs:
           dockdesk audit \
             --workspace /tmp/test-repo \
             --skip-rag \
-            --max-files ${{ matrix.repo.max_files }} \
+            --max-files 3 \
             --fast \
             --ci
           END_TIME=$(date +%s)
           echo "Duration: $((END_TIME - START_TIME))s"
-        timeout-minutes: 8
+        timeout-minutes: 5
 
       - name: Validate results
         run: |

@@ -1,0 +1,87 @@
+[
+  {
+    "file": "pass_small_1.py",
+    "expected_status": "PASS",
+    "is_large": false
+  },
+  {
+    "file": "pass_small_2.py",
+    "expected_status": "PASS",
+    "is_large": false
+  },
+  {
+    "file": "pass_small_3.py",
+    "expected_status": "PASS",
+    "is_large": false
+  },
+  {
+    "file": "fail_small_1.py",
+    "expected_status": "FAIL",
+    "is_large": false
+  },
+  {
+    "file": "fail_small_2.py",
+    "expected_status": "FAIL",
+    "is_large": false
+  },
+  {
+    "file": "fail_small_3.py",
+    "expected_status": "FAIL",
+    "is_large": false
+  },
+  {
+    "file": "hard_neg_1.py",
+    "expected_status": "PASS",
+    "is_large": false
+  },
+  {
+    "file": "hard_neg_2.py",
+    "expected_status": "PASS",
+    "is_large": false
+  },
+  {
+    "file": "hard_neg_3.py",
+    "expected_status": "PASS",
+    "is_large": false
+  },
+  {
+    "file": "pass_large_1.py",
+    "expected_status": "PASS",
+    "is_large": true
+  },
+  {
+    "file": "pass_large_2.py",
+    "expected_status": "PASS",
+    "is_large": true
+  },
+  {
+    "file": "pass_large_3.py",
+    "expected_status": "PASS",
+    "is_large": true
+  },
+  {
+    "file": "fail_large_1.py",
+    "expected_status": "FAIL",
+    "is_large": true
+  },
+  {
+    "file": "fail_large_2.py",
+    "expected_status": "FAIL",
+    "is_large": true
+  },
+  {
+    "file": "fail_large_3.py",
+    "expected_status": "FAIL",
+    "is_large": true
+  },
+  {
+    "file": "fail_large_4.py",
+    "expected_status": "FAIL",
+    "is_large": true
+  },
+  {
+    "file": "fail_large_5.py",
+    "expected_status": "FAIL",
+    "is_large": true
+  }
+]
